@@ -148,35 +148,32 @@ export const POSView: React.FC = () => {
       const seenIds = new Set<string>();
 
       // 1. Facturas abiertas desde Aging / CxC
-      if (agingData && Array.isArray(agingData.buckets)) {
-        for (const b of agingData.buckets) {
-          for (const it of b.items || []) {
-            const key = `INV-${it.invoiceId || it.invoiceNumber}`;
-            if (!seenIds.has(key)) {
-              seenIds.add(key);
-              items.push({
-                id: it.invoiceId,
-                folio: it.invoiceNumber,
-                quoteSeq: it.invoiceNumber,
-                partnerId: it.partnerId,
-                partnerName: it.partnerName,
-                taxNbr: it.partnerTaxNbr,
-                date: it.invoiceDate,
-                dueDate: it.dueDate,
-                totalAmount: it.totalAmount,
-                amountRemaining: it.amountRemaining,
-                status: it.amountRemaining <= 0 ? "PAID" : "PENDING",
-                source: "INVOICE",
-                items: [
-                  {
-                    productName: `Factura ${it.invoiceNumber} - Saldo CxC`,
-                    qty: 1,
-                    unitPrice: it.amountRemaining,
-                    total: it.amountRemaining,
-                  },
-                ],
-              });
-            }
+      if (agingData && Array.isArray(agingData.invoices)) {
+        for (const it of agingData.invoices) {
+          const key = `INV-${it.invoiceId || it.invoiceNumber}`;
+          if (!seenIds.has(key)) {
+            seenIds.add(key);
+            items.push({
+              id: it.invoiceId,
+              folio: it.invoiceNumber,
+              quoteSeq: it.invoiceNumber,
+              partnerId: it.partnerId,
+              partnerName: it.partnerName,
+              date: it.invoiceDate,
+              dueDate: it.dueDate,
+              totalAmount: it.totalAmount,
+              amountRemaining: it.amountRemaining,
+              status: it.amountRemaining <= 0 ? "PAID" : "PENDING",
+              source: "INVOICE",
+              items: [
+                {
+                  productName: `Factura ${it.invoiceNumber} - Saldo CxC`,
+                  qty: 1,
+                  unitPrice: it.amountRemaining,
+                  total: it.amountRemaining,
+                },
+              ],
+            });
           }
         }
       }
@@ -238,11 +235,11 @@ export const POSView: React.FC = () => {
       const invoiceIdNum = typeof selectedB2BInvoice.id === "number" ? selectedB2BInvoice.id : parseInt(String(selectedB2BInvoice.id).replace(/\D/g, ""), 10) || 1;
 
       try {
-        await financeApi.recordPayment(invoiceIdNum, {
-          companyId: activeCompany.id,
+        await financeApi.registerPayment(invoiceIdNum, {
           amount: payNum,
-          paymentMethod: b2bPayMethod,
+          paymentMethod: b2bPayMethod === "CASH" ? "CASH" : "BANK_TRANSFER",
           paymentDate: new Date().toISOString().slice(0, 10),
+          notes: `Cobro en Caja Mostrador POS (${b2bPayMethod})`,
         });
       } catch (e) {
         console.warn("Axelor direct invoice pay fallback:", e);
@@ -1447,6 +1444,8 @@ export const POSView: React.FC = () => {
           </Button>
         </div>
       </div>
+    </div>
+  )}
 
       {/* Historial de Recibos & Tickets Emitidos (Modal Completo) */}
       <Modal

@@ -10,10 +10,14 @@ import {
   Clock,
   Search,
   Edit3,
+  Printer,
+  PackageCheck,
 } from "lucide-react";
 import { useCompany } from "../context/CompanyContext";
 import { catalogApi } from "../api/catalogApi";
 import { logisticsApi, BatchLotRecord, DeliveryNoteRecord, InventoryAdjustmentRecord } from "../api/logisticsApi";
+import { salesApi } from "../api/salesApi";
+import { ThermalTicketModal } from "../components/layout/ThermalTicketModal";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
@@ -178,19 +182,74 @@ export const LogisticsView: React.FC = () => {
   const [adjReason, setAdjReason] = useState<"ROTURA" | "MERMA" | "CONTEO_FISICO" | "CADUCIDAD">("ROTURA");
   const [adjNotes, setAdjNotes] = useState("");
 
+  // Thermal Ticket & Delivery Guide Modal
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
+  const [ticketData, setTicketData] = useState<any>(null);
+
   const loadData = async () => {
     if (!activeCompany) return;
     try {
       setLoading(true);
-      const [lotsData, delData, adjData, prodData, partData] = await Promise.all([
+      const [lotsData, delData, adjData, prodData, partData, ordersData, quotesData] = await Promise.all([
         logisticsApi.listLots(activeCompany.id),
         logisticsApi.listDeliveries(activeCompany.id),
         logisticsApi.listAdjustments(activeCompany.id),
         catalogApi.listProducts(activeCompany.id),
         catalogApi.listPartners(activeCompany.id),
+        salesApi.listOrders(activeCompany.id).catch(() => []),
+        salesApi.listQuotes(activeCompany.id).catch(() => []),
       ]);
       setLots(lotsData || []);
-      setDeliveries(delData || []);
+
+      const combinedDeliveries: any[] = [...(delData || [])];
+      const seenSeq = new Set<string>(combinedDeliveries.map((d) => d.deliverySeq));
+
+      // Merge B2B Orders and Invoiced Quotes
+      for (const ord of ordersData) {
+        const seq = `DESP-${ord.orderSeq || ord.id}`;
+        if (!seenSeq.has(seq)) {
+          seenSeq.add(seq);
+          combinedDeliveries.push({
+            id: ord.id,
+            deliverySeq: seq,
+            partnerId: ord.partnerId,
+            partnerName: ord.partnerName,
+            driverName: "Transporte Propio / Reparto",
+            licensePlates: "LOG-B2B",
+            departureDate: ord.date || new Date().toISOString().slice(0, 10),
+            destinationAddress: "Entrega en Domicilio Fiscal del Cliente",
+            status: ord.status === "DELIVERED" ? "DELIVERED" : "IN_TRANSIT",
+            sourceDoc: ord.orderSeq || `PED-${ord.id}`,
+            items: ord.items,
+            totalAmount: ord.total,
+          });
+        }
+      }
+
+      for (const q of quotesData) {
+        if (q.status === "CONVERTED" || q.status === "WON") {
+          const seq = `DESP-${q.quoteSeq || q.id}`;
+          if (!seenSeq.has(seq)) {
+            seenSeq.add(seq);
+            combinedDeliveries.push({
+              id: q.id,
+              deliverySeq: seq,
+              partnerId: q.partnerId,
+              partnerName: q.partnerName,
+              driverName: "Muelle de Salida / Almacén",
+              licensePlates: "ALM-01",
+              departureDate: q.date || new Date().toISOString().slice(0, 10),
+              destinationAddress: "Entrega Inmediata Mostrador / Ruta",
+              status: "IN_TRANSIT",
+              sourceDoc: q.quoteSeq,
+              items: q.items,
+              totalAmount: q.total,
+            });
+          }
+        }
+      }
+
+      setDeliveries(combinedDeliveries);
       setAdjustments(adjData || []);
       setProducts(prodData || []);
       setPartners(partData || []);
@@ -207,6 +266,41 @@ export const LogisticsView: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePrintDeliveryGuide = (d: any) => {
+    if (!activeCompany) return;
+    setTicketData({
+      ticketNumber: d.deliverySeq || "REM-2026-0001",
+      docTypeLabel: "GUÍA DE REMISIÓN / DESPACHO",
+      companyName: activeCompany.name,
+      companyTaxId: activeCompany.taxId,
+      branchName: "Almacén Central / Despachos",
+      clientName: d.partnerName,
+      date: new Date().toLocaleString("es-MX"),
+      items: (d.items || []).map((it: any) => ({
+        productName: it.productName || "Artículo Despachado",
+        qty: it.qty || 1,
+        unitPrice: it.unitPrice || 0,
+        total: (it.qty || 1) * (it.unitPrice || 0),
+      })),
+      subtotal: Number(d.totalAmount ? (d.totalAmount / 1.16).toFixed(2) : 0),
+      taxAmount: Number(d.totalAmount ? (d.totalAmount - d.totalAmount / 1.16).toFixed(2) : 0),
+      total: Number(d.totalAmount || 0),
+      paymentMethod: `DESPACHO: ${d.driverName || "Chofer Asignado"} (${d.licensePlates || "S/P"})`,
+      amountPaid: Number(d.totalAmount || 0),
+      change: 0,
+    });
+    setTicketModalOpen(true);
+  };
+
+  const handleMarkDelivered = (d: any) => {
+    setDeliveries((prev) =>
+      prev.map((item) =>
+        item.deliverySeq === d.deliverySeq ? { ...item, status: "DELIVERED" } : item
+      )
+    );
+    alert(`¡Orden ${d.deliverySeq} marcada como ENTREGADA exitosamente!`);
   };
 
   useEffect(() => {
@@ -406,19 +500,26 @@ export const LogisticsView: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-etiserv-navyDark text-slate-400 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200 dark:border-white/10">
                 <tr>
-                  <th className="py-2.5 px-5">Folio Remisión</th>
+                  <th className="py-2.5 px-5">Folio Remisión / Despacho</th>
+                  <th className="py-2.5 px-5">Doc. Origen</th>
                   <th className="py-2.5 px-5">Destino / Cliente</th>
-                  <th className="py-2.5 px-5">Chofer & Placas</th>
+                  <th className="py-2.5 px-5">Chofer & Unidad</th>
                   <th className="py-2.5 px-5">Fecha Salida</th>
                   <th className="py-2.5 px-5">Dirección de Entrega</th>
-                  <th className="py-2.5 px-5 text-center">Estado</th>
+                  <th className="py-2.5 px-5 text-center">Estado Despacho</th>
+                  <th className="py-2.5 px-5 text-right">Acción Almacén</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {deliveries.map((d) => (
-                  <tr key={d.id} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition-colors">
-                    <td className="py-3 px-5 font-mono text-xs font-semibold text-etiserv-blue">
+                {deliveries.map((d, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition-colors">
+                    <td className="py-3 px-5 font-mono text-xs font-bold text-etiserv-blue">
                       {d.deliverySeq}
+                    </td>
+                    <td className="py-3 px-5">
+                      <Badge variant="neutral" className="font-mono text-[10px] px-1.5 py-0.5">
+                        {(d as any).sourceDoc || "Orden B2B"}
+                      </Badge>
                     </td>
                     <td className="py-3 px-5 font-semibold text-slate-900 dark:text-white">
                       {d.partnerName}
@@ -430,13 +531,40 @@ export const LogisticsView: React.FC = () => {
                     <td className="py-3 px-5 font-mono text-xs text-slate-500">
                       {d.departureDate}
                     </td>
-                    <td className="py-3 px-5 text-slate-600 dark:text-slate-300 truncate max-w-[200px]" title={d.destinationAddress}>
+                    <td className="py-3 px-5 text-slate-600 dark:text-slate-300 truncate max-w-[180px]" title={d.destinationAddress}>
                       {d.destinationAddress}
                     </td>
                     <td className="py-3 px-5 text-center">
                       <Badge variant={d.status === "DELIVERED" ? "success" : "warning"} dot>
-                        {d.status === "DELIVERED" ? "Entregado" : "En Tránsito"}
+                        {d.status === "DELIVERED" ? "Entregado" : "En Despacho / Ruta"}
                       </Badge>
+                    </td>
+                    <td className="py-3 px-5 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handlePrintDeliveryGuide(d)}
+                          className="text-[11px] py-1 px-2 gap-1 hover:border-etiserv-blue font-semibold text-slate-700 dark:text-slate-200"
+                          title="Imprimir Guía de Remisión y Hoja de Despacho"
+                        >
+                          <Printer className="w-3 h-3 text-etiserv-blue" />
+                          <span>Guía</span>
+                        </Button>
+                        {d.status !== "DELIVERED" && (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            glow
+                            onClick={() => handleMarkDelivered(d)}
+                            className="text-[11px] py-1 px-2 gap-1 font-bold"
+                            title="Marcar como entregado al cliente"
+                          >
+                            <PackageCheck className="w-3 h-3" />
+                            <span>Entregar</span>
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -568,6 +696,15 @@ export const LogisticsView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Thermal Ticket / Remisión Modal */}
+      {ticketData && (
+        <ThermalTicketModal
+          isOpen={ticketModalOpen}
+          onClose={() => setTicketModalOpen(false)}
+          ticketData={ticketData}
+        />
+      )}
     </div>
   );
 };
