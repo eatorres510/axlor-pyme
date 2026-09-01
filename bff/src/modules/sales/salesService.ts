@@ -119,6 +119,18 @@ export class SalesService {
     }
   }
 
+  private async getCompanyCurrency(companyId?: number): Promise<{ id: number }> {
+    if (companyId) {
+      try {
+        const comp = await axelor.fetch("com.axelor.apps.base.db.Company", companyId);
+        if (comp && comp.currency?.id) {
+          return { id: Number(comp.currency.id) };
+        }
+      } catch {}
+    }
+    return { id: 100 }; // Mexican Peso (MXN)
+  }
+
   public async createQuote(payload: CreateQuotePayload): Promise<SaleQuoteRecord> {
     const subtotal = payload.items.reduce((sum, item) => {
       const discountedPrice = item.unitPrice * (1 - (item.discountPct || 0) / 100);
@@ -142,14 +154,15 @@ export class SalesService {
       }
     } catch {}
 
+    const currencyObj = await this.getCompanyCurrency(payload.companyId);
     const today = new Date().toISOString().slice(0, 10);
     const validUntilDate = payload.validUntil || new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10);
 
     const saleOrderPayload: any = {
       saleOrderSeq: quoteSeq,
-      company: { id: payload.companyId || 1 },
+      company: { id: payload.companyId || 13 },
       clientPartner: { id: payload.partnerId, version: partnerVersion },
-      currency: { id: 1 },
+      currency: currencyObj,
       creationDate: today,
       orderDate: today,
       estimatedDeliveryDate: validUntilDate,
@@ -184,7 +197,7 @@ export class SalesService {
     return {
       id: savedId,
       quoteSeq,
-      companyId: payload.companyId || 1,
+      companyId: payload.companyId || 13,
       partnerId: payload.partnerId,
       partnerName: payload.partnerName,
       priceListCode: payload.priceListCode,
@@ -221,7 +234,7 @@ export class SalesService {
         return {
           id: String(so.id),
           quoteSeq: so.saleOrderSeq || `COT-2026-${String(so.id).padStart(5, "0")}`,
-          companyId: so.company?.id || 1,
+          companyId: so.company?.id || 13,
           partnerId: so.clientPartner?.id || 1,
           partnerName: so.clientPartner?.name || so.clientPartner?.simpleFullName || "Cliente General",
           priceListCode: "PUBLIC",
@@ -382,7 +395,7 @@ export class SalesService {
         return {
           id: String(so.id),
           orderSeq: so.saleOrderSeq || orderId,
-          companyId: so.company?.id || 1,
+          companyId: so.company?.id || 13,
           partnerId: so.clientPartner?.id || 1,
           partnerName: so.clientPartner?.name || so.clientPartner?.simpleFullName || "Cliente General",
           date: so.orderDate || new Date().toISOString().slice(0, 10),
@@ -431,13 +444,14 @@ export class SalesService {
       }
     } catch {}
 
+    const currencyObj = await this.getCompanyCurrency(payload.companyId);
     const today = new Date().toISOString().slice(0, 10);
 
     const saleOrderPayload: any = {
       saleOrderSeq: orderSeq,
-      company: { id: payload.companyId || 1 },
+      company: { id: payload.companyId || 13 },
       clientPartner: { id: payload.partnerId, version: partnerVersion },
-      currency: { id: 1 },
+      currency: currencyObj,
       creationDate: today,
       orderDate: today,
       statusSelect: 2, // 2: Order confirmed
@@ -470,7 +484,7 @@ export class SalesService {
     return {
       id: savedId,
       orderSeq,
-      companyId: payload.companyId || 1,
+      companyId: payload.companyId || 13,
       partnerId: payload.partnerId,
       partnerName: payload.partnerName,
       date: today,
@@ -499,8 +513,15 @@ export class SalesService {
     const idNum = parseInt(quote.id.replace(/\D/g, ""), 10);
     try {
       if (!isNaN(idNum)) {
+        let soVersion = 0;
+        try {
+          const soRaw = await axelor.fetch("com.axelor.apps.sale.db.SaleOrder", idNum);
+          if (soRaw && soRaw.version !== undefined) soVersion = soRaw.version;
+        } catch {}
+
         await axelor.update("com.axelor.apps.sale.db.SaleOrder", {
           id: idNum,
+          version: soVersion,
           statusSelect: 2, // Confirmed Order
           saleOrderSeq: orderSeq,
         });
@@ -539,6 +560,15 @@ export class SalesService {
       quote.companyId
     );
 
+    const currencyObj = await this.getCompanyCurrency(quote.companyId);
+    let partnerVersion = 0;
+    try {
+      const partnerRes = await axelor.fetch("com.axelor.apps.base.db.Partner", quote.partnerId);
+      if (partnerRes && partnerRes.version !== undefined) {
+        partnerVersion = partnerRes.version;
+      }
+    } catch {}
+
     let invoiceId = Date.now();
     try {
       const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", {
@@ -546,8 +576,9 @@ export class SalesService {
         invoiceDate: new Date().toISOString().slice(0, 10),
         statusSelect: 2, // 2: Validada / Por cobrar
         operationSubTypeSelect: 1, // 1: Cliente (CxC)
-        partner: { id: quote.partnerId },
-        company: { id: quote.companyId },
+        partner: { id: quote.partnerId, version: partnerVersion },
+        company: { id: quote.companyId || 13 },
+        currency: currencyObj,
         exTaxTotal: quote.subtotal,
         taxTotal: quote.taxAmount,
         inTaxTotal: quote.total,
@@ -561,8 +592,15 @@ export class SalesService {
 
       const idNum = parseInt(quote.id.replace(/\D/g, ""), 10);
       if (!isNaN(idNum)) {
+        let soVersion = 0;
+        try {
+          const soRaw = await axelor.fetch("com.axelor.apps.sale.db.SaleOrder", idNum);
+          if (soRaw && soRaw.version !== undefined) soVersion = soRaw.version;
+        } catch {}
+
         await axelor.update("com.axelor.apps.sale.db.SaleOrder", {
           id: idNum,
+          version: soVersion,
           statusSelect: 3, // Invoiced
         });
       }
