@@ -530,13 +530,21 @@ export class CatalogService {
   }
 
   public async updateProduct(id: number, input: Partial<ProductInput>): Promise<any> {
-    const payload: Record<string, any> = { id };
+    let currentVersion = 0;
+    try {
+      const current = await axelor.fetch("com.axelor.apps.base.db.Product", id);
+      if (current && current.version !== undefined) {
+        currentVersion = current.version;
+      }
+    } catch {}
+
+    const payload: Record<string, any> = { id, version: currentVersion };
     if (input.name) payload.name = input.name;
     if (input.code) payload.code = input.code;
-    if (input.salePrice !== undefined) payload.salePrice = input.salePrice;
+    if (input.salePrice !== undefined) payload.salePrice = Number(input.salePrice);
     if (input.purchasePrice !== undefined) {
-      payload.purchasePrice = input.purchasePrice;
-      payload.costPrice = input.purchasePrice;
+      payload.purchasePrice = Number(input.purchasePrice);
+      payload.costPrice = Number(input.purchasePrice);
     }
     if (input.categoryId) payload.productCategory = { id: input.categoryId };
 

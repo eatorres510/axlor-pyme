@@ -54,6 +54,7 @@ const SearchableProductRow: React.FC<{
   products: any[];
   onSelect: (index: number, product: any) => void;
   onUpdateQty: (index: number, qty: number) => void;
+  onUpdateUnitPrice?: (index: number, unitPrice: number) => void;
   onUpdateDiscount: (index: number, discountPct: number) => void;
   onRemove: (index: number) => void;
   formatCurrency: (val: number) => string;
@@ -63,6 +64,7 @@ const SearchableProductRow: React.FC<{
   products,
   onSelect,
   onUpdateQty,
+  onUpdateUnitPrice,
   onUpdateDiscount,
   onRemove,
   formatCurrency,
@@ -229,11 +231,14 @@ const SearchableProductRow: React.FC<{
             Precio Unit. ($)
           </label>
           <input
-            type="text"
-            readOnly
-            value={formatCurrency(item.unitPrice || 0)}
-            className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-right text-slate-600 dark:text-slate-300 font-semibold"
-            title="Precio unitario de lista"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="0.00"
+            value={item.unitPrice ?? 0}
+            onChange={(e) => onUpdateUnitPrice ? onUpdateUnitPrice(index, parseFloat(e.target.value) || 0) : null}
+            className="w-full bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-right text-slate-900 dark:text-white font-bold"
+            title="Precio unitario de venta"
           />
         </div>
 
@@ -1754,6 +1759,11 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
                     updated[i].qty = qty;
                     setQuoteItems(updated);
                   }}
+                  onUpdateUnitPrice={(i, price) => {
+                    const updated = [...quoteItems];
+                    updated[i].unitPrice = price;
+                    setQuoteItems(updated);
+                  }}
                   onUpdateDiscount={(i, dPct) => {
                     const updated = [...quoteItems];
                     updated[i].discountPct = dPct;
@@ -1980,6 +1990,11 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
                         onUpdateQty={(index, qty) => {
                           const updated = [...editQuoteLines];
                           updated[index].qty = qty;
+                          setEditQuoteLines(updated);
+                        }}
+                        onUpdateUnitPrice={(index, price) => {
+                          const updated = [...editQuoteLines];
+                          updated[index].unitPrice = price;
                           setEditQuoteLines(updated);
                         }}
                         onUpdateDiscount={(index, dPct) => {
