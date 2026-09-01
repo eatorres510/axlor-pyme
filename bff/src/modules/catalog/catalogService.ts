@@ -491,13 +491,14 @@ export class CatalogService {
   public async createProduct(input: ProductInput): Promise<any> {
     const payload: Record<string, any> = {
       name: input.name,
-      code: input.barCode || input.code,
+      code: input.code,
       salePrice: input.salePrice,
       costPrice: input.purchasePrice || 0,
       purchasePrice: input.purchasePrice || 0,
       stockManaged: true,
       productTypeSelect: "storable",
-      company: { id: input.companyId || 13 },
+      company: { id: input.companyId || 1 },
+      unit: { id: 1 },
     };
 
     if (input.categoryId) {
@@ -510,33 +511,28 @@ export class CatalogService {
       return {
         ...(item || payload),
         id: item?.id || Date.now(),
+        name: input.name,
+        code: input.code,
+        barCode: input.barCode || input.code,
         categoryId: input.categoryId || 1,
         categoryName: input.categoryName || "General",
         uomCode: input.uomCode || "PZA",
         uomName: input.uomName || "Pieza",
         salePrice: input.salePrice,
         purchasePrice: input.purchasePrice || 0,
+        costPrice: input.purchasePrice || 0,
         taxRate: input.taxRate || 16,
       };
-    } catch {
-      return {
-        id: Date.now(),
-        ...payload,
-        categoryId: input.categoryId || 1,
-        categoryName: input.categoryName || "General",
-        uomCode: input.uomCode || "PZA",
-        uomName: input.uomName || "Pieza",
-        salePrice: input.salePrice,
-        purchasePrice: input.purchasePrice || 0,
-        taxRate: input.taxRate || 16,
-      };
+    } catch (err: any) {
+      console.error("[CatalogService] Error creando producto en Axelor:", err.message);
+      throw err;
     }
   }
 
   public async updateProduct(id: number, input: Partial<ProductInput>): Promise<any> {
     const payload: Record<string, any> = { id };
     if (input.name) payload.name = input.name;
-    if (input.code || input.barCode) payload.code = input.barCode || input.code;
+    if (input.code) payload.code = input.code;
     if (input.salePrice !== undefined) payload.salePrice = input.salePrice;
     if (input.purchasePrice !== undefined) {
       payload.purchasePrice = input.purchasePrice;
@@ -547,8 +543,9 @@ export class CatalogService {
     try {
       const res = await axelor.update("com.axelor.apps.base.db.Product", payload);
       return res.data?.[0] || payload;
-    } catch {
-      return payload;
+    } catch (err: any) {
+      console.error("[CatalogService] Error actualizando producto en Axelor:", err.message);
+      throw err;
     }
   }
 

@@ -1032,32 +1032,38 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ initialTab }) => {
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeCompany) return;
-    const cat = categories.find((c) => c.id === Number(prodForm.categoryId));
-    const uom = uoms.find((u) => u.code === prodForm.uomCode);
+    const compId = activeCompany?.id || 1;
+    const cat = (categories.length > 0 ? categories : DEFAULT_CATEGORIES).find((c) => c.id === Number(prodForm.categoryId));
+    const uom = (uoms.length > 0 ? uoms : DEFAULT_UOMS_LIST).find((u) => u.code === prodForm.uomCode);
 
     try {
+      setLoading(true);
       if (editingId) {
         await catalogApi.updateProduct(Number(editingId), {
           ...prodForm,
-          categoryId: Number(prodForm.categoryId),
-          categoryName: cat?.name,
-          uomName: uom?.name,
+          categoryId: Number(prodForm.categoryId) || 1,
+          categoryName: cat?.name || "General",
+          uomCode: prodForm.uomCode || "PZA",
+          uomName: uom?.name || "Pieza",
         });
       } else {
         await catalogApi.createProduct({
           ...prodForm,
-          categoryId: Number(prodForm.categoryId),
-          categoryName: cat?.name,
-          uomName: uom?.name,
-          companyId: activeCompany.id,
+          categoryId: Number(prodForm.categoryId) || 1,
+          categoryName: cat?.name || "General",
+          uomCode: prodForm.uomCode || "PZA",
+          uomName: uom?.name || "Pieza",
+          companyId: compId,
         });
       }
       setModalType(null);
       setEditingId(null);
-      loadAllData();
+      await loadAllData();
     } catch (err: any) {
-      alert(`Error al guardar producto: ${err.message}`);
+      console.error("Error al guardar producto:", err);
+      alert(`Error al guardar producto: ${err.message || "Error de comunicación"}`);
+    } finally {
+      setLoading(false);
     }
   };
 

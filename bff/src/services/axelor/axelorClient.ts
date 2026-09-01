@@ -180,6 +180,9 @@ export class AxelorClient {
       `/ws/rest/${model}`,
       { data }
     );
+    if (response.data && response.data.status !== 0 && (response.data as any).message) {
+      throw new Error((response.data as any).message || (response.data as any).title || "Error en operación de Axelor");
+    }
     return response.data;
   }
 
@@ -215,6 +218,9 @@ export class AxelorClient {
       `/ws/rest/${model}`,
       { data }
     );
+    if (response.data && response.data.status !== 0 && (response.data as any).message) {
+      throw new Error((response.data as any).message || (response.data as any).title || "Error en operación de Axelor");
+    }
     return response.data;
   }
 

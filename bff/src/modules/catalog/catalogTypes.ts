@@ -33,7 +33,7 @@ export const ProductSchema = z.object({
   uomName: z.string().optional().default("Pieza"),
   taxRate: z.coerce.number().optional().default(16), // 16%, 8%, 0%, Exento
   minStock: z.coerce.number().optional().default(5),
-  companyId: z.number().min(1, "El ID de empresa es requerido"),
+  companyId: z.number().optional().default(1),
 });
 
 export type ProductInput = z.infer<typeof ProductSchema>;
