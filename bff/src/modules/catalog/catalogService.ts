@@ -88,26 +88,37 @@ export class CatalogService {
     try {
       const res = await axelor.search("com.axelor.apps.base.db.Unit", {
         limit: 100,
-        sortBy: ["code"],
+        sortBy: ["name"],
       });
       const data = Array.isArray(res.data) ? res.data : [];
       if (data.length > 0) {
-        return data.map((u: any) => ({
-          code: u.code || u.name,
-          name: u.name || u.code,
-          symbol: u.symbol || u.code?.toLowerCase() || "u",
-          category: u.unitTypeSelect || "UNIT",
-        }));
+        const mapped = data.map((u: any) => {
+          const name = u.name || "Pieza";
+          const match = DEFAULT_UOMS.find(
+            (d) => d.name.toLowerCase() === name.toLowerCase() || d.code.toLowerCase() === (u.code || "").toLowerCase()
+          );
+          const code = match?.code || (u.code ? u.code.toUpperCase() : name.slice(0, 3).toUpperCase());
+          const symbol = u.labelToPrinting || match?.symbol || code.toLowerCase();
+          const category = match?.category || "UNIT";
+          return { code, name, symbol, category };
+        });
+
+        // Asegurar que las UoMs estándar estén en la lista devuelta
+        const seen = new Set(mapped.map((m) => m.code));
+        for (const def of DEFAULT_UOMS) {
+          if (!seen.has(def.code)) {
+            mapped.push(def);
+          }
+        }
+        return mapped;
       }
 
       // Bootstrap idempotente en Axelor si la tabla de unidades está vacía
       if (!this.uomSeeded) {
         this.uomSeeded = true;
         const seedPayloads = DEFAULT_UOMS.map((u) => ({
-          code: u.code,
           name: u.name,
-          symbol: u.symbol,
-          unitTypeSelect: u.category || "UNIT",
+          labelToPrinting: u.symbol,
         }));
         await axelor.createMany("com.axelor.apps.base.db.Unit", seedPayloads);
       }
@@ -121,33 +132,31 @@ export class CatalogService {
   public async createUoM(input: UnitOfMeasure): Promise<UnitOfMeasure> {
     const code = input.code.toUpperCase();
     const payload = {
-      code,
       name: input.name,
-      symbol: input.symbol || code.toLowerCase(),
-      unitTypeSelect: input.category || "UNIT",
+      labelToPrinting: input.symbol || code.toLowerCase(),
     };
 
     try {
       const searchRes = await axelor.search("com.axelor.apps.base.db.Unit", {
-        data: { _domain: `self.code = '${code}'` },
+        data: { _domain: `lower(self.name) = '${input.name.toLowerCase()}'` },
         limit: 1,
       });
       if (searchRes.data && searchRes.data.length > 0) {
         return {
           code,
           name: searchRes.data[0].name || input.name,
-          symbol: searchRes.data[0].symbol || input.symbol,
-          category: searchRes.data[0].unitTypeSelect || input.category || "UNIT",
+          symbol: searchRes.data[0].labelToPrinting || input.symbol,
+          category: input.category || "UNIT",
         };
       }
 
       const res = await axelor.create("com.axelor.apps.base.db.Unit", payload);
       const created = Array.isArray(res.data) ? res.data[0] : res.data;
       return {
-        code: created?.code || code,
+        code,
         name: created?.name || input.name,
-        symbol: created?.symbol || input.symbol,
-        category: created?.unitTypeSelect || input.category || "UNIT",
+        symbol: created?.labelToPrinting || input.symbol,
+        category: input.category || "UNIT",
       };
     } catch (err: any) {
       console.warn("[CatalogService] Error creando UoM en Axelor:", err.message);
@@ -158,23 +167,15 @@ export class CatalogService {
   public async updateUoM(code: string, input: Partial<UnitOfMeasure>): Promise<UnitOfMeasure> {
     try {
       const searchRes = await axelor.search("com.axelor.apps.base.db.Unit", {
-        data: { _domain: `self.code = '${code.toUpperCase()}'` },
-        limit: 1,
+        limit: 10,
       });
-      if (searchRes.data && searchRes.data.length > 0) {
-        const uom = searchRes.data[0];
-        const updatePayload: any = { id: uom.id, version: uom.version ?? 0 };
+      const items = Array.isArray(searchRes.data) ? searchRes.data : [];
+      const match = items.find((u: any) => u.name?.toLowerCase().includes(code.toLowerCase()));
+      if (match) {
+        const updatePayload: any = { id: match.id, version: match.version ?? 0 };
         if (input.name) updatePayload.name = input.name;
-        if (input.symbol) updatePayload.symbol = input.symbol;
-        if (input.category) updatePayload.unitTypeSelect = input.category;
-        const res = await axelor.update("com.axelor.apps.base.db.Unit", updatePayload);
-        const updated = Array.isArray(res.data) ? res.data[0] : res.data;
-        return {
-          code: updated?.code || code,
-          name: updated?.name || input.name || uom.name,
-          symbol: updated?.symbol || input.symbol || uom.symbol,
-          category: updated?.unitTypeSelect || input.category || uom.unitTypeSelect || "UNIT",
-        };
+        if (input.symbol) updatePayload.labelToPrinting = input.symbol;
+        await axelor.update("com.axelor.apps.base.db.Unit", updatePayload);
       }
     } catch (err: any) {
       console.warn("[CatalogService] Error actualizando UoM en Axelor:", err.message);
@@ -185,12 +186,12 @@ export class CatalogService {
   public async deleteUoM(code: string): Promise<boolean> {
     try {
       const searchRes = await axelor.search("com.axelor.apps.base.db.Unit", {
-        data: { _domain: `self.code = '${code.toUpperCase()}'` },
-        limit: 1,
+        limit: 20,
       });
-      if (searchRes.data && searchRes.data.length > 0) {
-        const uom = searchRes.data[0];
-        return await axelor.remove("com.axelor.apps.base.db.Unit", uom.id, uom.version ?? 0);
+      const items = Array.isArray(searchRes.data) ? searchRes.data : [];
+      const match = items.find((u: any) => u.name?.toLowerCase().includes(code.toLowerCase()));
+      if (match) {
+        return await axelor.remove("com.axelor.apps.base.db.Unit", match.id, match.version ?? 0);
       }
     } catch (err: any) {
       console.warn("[CatalogService] Error eliminando UoM en Axelor:", err.message);
@@ -199,34 +200,55 @@ export class CatalogService {
   }
 
   // ==========================================
-  // LISTAS DE PRECIOS - Backing en com.axelor.apps.sale.db.PriceList
+  // LISTAS DE PRECIOS - Backing en com.axelor.apps.base.db.PriceList
   // ==========================================
   public async listPriceLists(): Promise<PriceListInput[]> {
     try {
-      const res = await axelor.search("com.axelor.apps.sale.db.PriceList", {
+      const res = await axelor.search("com.axelor.apps.base.db.PriceList", {
         limit: 100,
-        sortBy: ["code"],
+        sortBy: ["title"],
       });
       const data = Array.isArray(res.data) ? res.data : [];
       if (data.length > 0) {
-        return data.map((p: any) => ({
-          code: p.code || p.name,
-          name: p.name || p.code,
-          discountPct: Number(p.discount || 0),
-          description: p.description || p.name || `Tarifa ${p.name}`,
-        }));
+        const mapped = data.map((p: any) => {
+          const match = DEFAULT_PRICE_LISTS.find(
+            (d) => d.name.toLowerCase() === (p.title || "").toLowerCase()
+          );
+          const code = match?.code || (p.title ? p.title.slice(0, 10).toUpperCase().replace(/\s+/g, "_") : `PL-${p.id}`);
+          return {
+            code,
+            name: p.title || `Tarifa #${p.id}`,
+            discountPct: Number(p.generalDiscount || match?.discountPct || 0),
+            description: p.comments || match?.description || `Tarifa ${p.title}`,
+          };
+        });
+
+        // Asegurar que las listas por defecto estén incluidas
+        const seen = new Set(mapped.map((m) => m.code));
+        for (const def of DEFAULT_PRICE_LISTS) {
+          if (!seen.has(def.code)) {
+            mapped.push({
+              code: def.code,
+              name: def.name,
+              discountPct: def.discountPct,
+              description: def.description || def.name,
+            });
+          }
+        }
+        return mapped;
       }
 
       // Bootstrap en Axelor si está vacía
       if (!this.priceListSeeded) {
         this.priceListSeeded = true;
         const seedPayloads = DEFAULT_PRICE_LISTS.map((pl) => ({
-          code: pl.code,
-          name: pl.name,
-          discount: pl.discountPct,
-          description: pl.description,
+          title: pl.name,
+          generalDiscount: String(pl.discountPct),
+          comments: pl.description,
+          currency: { id: 1 },
+          isActive: true,
         }));
-        await axelor.createMany("com.axelor.apps.sale.db.PriceList", seedPayloads);
+        await axelor.createMany("com.axelor.apps.base.db.PriceList", seedPayloads);
       }
       return DEFAULT_PRICE_LISTS;
     } catch (err: any) {
@@ -238,33 +260,34 @@ export class CatalogService {
   public async createPriceList(input: PriceListInput): Promise<PriceListInput> {
     const code = input.code.toUpperCase();
     const payload = {
-      code,
-      name: input.name,
-      discount: input.discountPct,
-      description: input.description || `Tarifa comercial ${input.name}`,
+      title: input.name,
+      generalDiscount: String(input.discountPct || 0),
+      comments: input.description || `Tarifa comercial ${input.name}`,
+      currency: { id: 1 },
+      isActive: true,
     };
 
     try {
-      const searchRes = await axelor.search("com.axelor.apps.sale.db.PriceList", {
-        data: { _domain: `self.code = '${code}'` },
+      const searchRes = await axelor.search("com.axelor.apps.base.db.PriceList", {
+        data: { _domain: `lower(self.title) = '${input.name.toLowerCase()}'` },
         limit: 1,
       });
       if (searchRes.data && searchRes.data.length > 0) {
         return {
           code,
-          name: searchRes.data[0].name || input.name,
-          discountPct: Number(searchRes.data[0].discount || input.discountPct),
-          description: searchRes.data[0].description || input.description,
+          name: searchRes.data[0].title || input.name,
+          discountPct: Number(searchRes.data[0].generalDiscount || input.discountPct),
+          description: searchRes.data[0].comments || input.description,
         };
       }
 
-      const res = await axelor.create("com.axelor.apps.sale.db.PriceList", payload);
+      const res = await axelor.create("com.axelor.apps.base.db.PriceList", payload);
       const created = Array.isArray(res.data) ? res.data[0] : res.data;
       return {
-        code: created?.code || code,
-        name: created?.name || input.name,
-        discountPct: Number(created?.discount || input.discountPct),
-        description: created?.description || input.description,
+        code,
+        name: created?.title || input.name,
+        discountPct: Number(created?.generalDiscount || input.discountPct),
+        description: created?.comments || input.description,
       };
     } catch (err: any) {
       console.warn("[CatalogService] Error creando PriceList en Axelor:", err.message);
@@ -274,24 +297,17 @@ export class CatalogService {
 
   public async updatePriceList(code: string, input: Partial<PriceListInput>): Promise<PriceListInput> {
     try {
-      const searchRes = await axelor.search("com.axelor.apps.sale.db.PriceList", {
-        data: { _domain: `self.code = '${code.toUpperCase()}'` },
-        limit: 1,
+      const searchRes = await axelor.search("com.axelor.apps.base.db.PriceList", {
+        limit: 20,
       });
-      if (searchRes.data && searchRes.data.length > 0) {
-        const pl = searchRes.data[0];
-        const updatePayload: any = { id: pl.id, version: pl.version ?? 0 };
-        if (input.name) updatePayload.name = input.name;
-        if (input.discountPct !== undefined) updatePayload.discount = input.discountPct;
-        if (input.description) updatePayload.description = input.description;
-        const res = await axelor.update("com.axelor.apps.sale.db.PriceList", updatePayload);
-        const updated = Array.isArray(res.data) ? res.data[0] : res.data;
-        return {
-          code: updated?.code || code,
-          name: updated?.name || input.name || pl.name,
-          discountPct: Number(updated?.discount ?? input.discountPct ?? pl.discount ?? 0),
-          description: updated?.description || input.description || pl.description,
-        };
+      const items = Array.isArray(searchRes.data) ? searchRes.data : [];
+      const match = items.find((p: any) => p.title?.toLowerCase().includes(code.toLowerCase()));
+      if (match) {
+        const updatePayload: any = { id: match.id, version: match.version ?? 0 };
+        if (input.name) updatePayload.title = input.name;
+        if (input.discountPct !== undefined) updatePayload.generalDiscount = String(input.discountPct);
+        if (input.description) updatePayload.comments = input.description;
+        await axelor.update("com.axelor.apps.base.db.PriceList", updatePayload);
       }
     } catch (err: any) {
       console.warn("[CatalogService] Error actualizando PriceList en Axelor:", err.message);
@@ -301,13 +317,13 @@ export class CatalogService {
 
   public async deletePriceList(code: string): Promise<boolean> {
     try {
-      const searchRes = await axelor.search("com.axelor.apps.sale.db.PriceList", {
-        data: { _domain: `self.code = '${code.toUpperCase()}'` },
-        limit: 1,
+      const searchRes = await axelor.search("com.axelor.apps.base.db.PriceList", {
+        limit: 20,
       });
-      if (searchRes.data && searchRes.data.length > 0) {
-        const pl = searchRes.data[0];
-        return await axelor.remove("com.axelor.apps.sale.db.PriceList", pl.id, pl.version ?? 0);
+      const items = Array.isArray(searchRes.data) ? searchRes.data : [];
+      const match = items.find((p: any) => p.title?.toLowerCase().includes(code.toLowerCase()));
+      if (match) {
+        return await axelor.remove("com.axelor.apps.base.db.PriceList", match.id, match.version ?? 0);
       }
     } catch (err: any) {
       console.warn("[CatalogService] Error eliminando PriceList en Axelor:", err.message);
@@ -326,10 +342,17 @@ export class CatalogService {
       });
       const rawList = Array.isArray(res.data) && res.data.length > 0 ? res.data : [];
       if (rawList.length > 0) {
-        return rawList;
+        const mapped = rawList.map((c: any) => ({
+          id: c.id,
+          name: c.name || `Categoría ${c.id}`,
+          code: c.code || `CAT-${c.id}`,
+          description: c.description || c.name || "Familia de productos",
+        }));
+        return mapped;
       }
       return SEED_CATEGORIES;
-    } catch {
+    } catch (err: any) {
+      console.warn("[CatalogService] Error consultando categorías en Axelor:", err.message);
       return SEED_CATEGORIES;
     }
   }
@@ -425,9 +448,11 @@ export class CatalogService {
             ...p,
             salePrice: Number(p.salePrice ?? 0),
             purchasePrice: Number(p.purchasePrice ?? p.costPrice ?? 0),
-            uomCode: p.uomCode || p.unit?.code || "PZA",
-            uomName: p.uomName || p.unit?.name || "Pieza",
+            costPrice: Number(p.costPrice ?? p.purchasePrice ?? 0),
+            categoryId: p.productCategory?.id || p.categoryId || 1,
             categoryName: p.categoryName || p.productCategory?.name || "General",
+            uomCode: p.uomCode || p.unit?.code || (p.unit?.name ? DEFAULT_UOMS.find(d => d.name.toLowerCase() === p.unit.name.toLowerCase())?.code : "PZA") || "PZA",
+            uomName: p.uomName || p.unit?.name || "Pieza",
             imageUrl: resolveProductImageUrl(p),
             taxRate: p.taxRate || 16,
           });
@@ -448,9 +473,10 @@ export class CatalogService {
           salePrice: Number(prod.salePrice ?? 0),
           costPrice: Number(prod.costPrice ?? prod.purchasePrice ?? 0),
           purchasePrice: Number(prod.purchasePrice ?? prod.costPrice ?? 0),
-          uomCode: prod.unit?.code || "PZA",
-          uomName: prod.unit?.name || "Pieza",
+          categoryId: prod.productCategory?.id || 1,
           categoryName: prod.productCategory?.name || "General",
+          uomCode: prod.unit?.code || (prod.unit?.name ? DEFAULT_UOMS.find(d => d.name.toLowerCase() === prod.unit.name.toLowerCase())?.code : "PZA") || "PZA",
+          uomName: prod.unit?.name || "Pieza",
         };
       }
     } catch {}
@@ -467,7 +493,7 @@ export class CatalogService {
       purchasePrice: input.purchasePrice || 0,
       stockManaged: true,
       productTypeSelect: "storable",
-      company: { id: input.companyId },
+      company: { id: input.companyId || 13 },
     };
 
     if (input.categoryId) {
@@ -480,9 +506,10 @@ export class CatalogService {
       return {
         ...(item || payload),
         id: item?.id || Date.now(),
+        categoryId: input.categoryId || 1,
+        categoryName: input.categoryName || "General",
         uomCode: input.uomCode || "PZA",
         uomName: input.uomName || "Pieza",
-        categoryName: input.categoryName || "General",
         salePrice: input.salePrice,
         purchasePrice: input.purchasePrice || 0,
         taxRate: input.taxRate || 16,
@@ -491,9 +518,10 @@ export class CatalogService {
       return {
         id: Date.now(),
         ...payload,
+        categoryId: input.categoryId || 1,
+        categoryName: input.categoryName || "General",
         uomCode: input.uomCode || "PZA",
         uomName: input.uomName || "Pieza",
-        categoryName: input.categoryName || "General",
         salePrice: input.salePrice,
         purchasePrice: input.purchasePrice || 0,
         taxRate: input.taxRate || 16,

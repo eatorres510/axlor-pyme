@@ -1,4 +1,4 @@
-﻿import axios, { AxiosInstance, AxiosResponse } from "axios";
+import axios, { AxiosInstance, AxiosResponse } from "axios";
 import { env } from "../../config/env.js";
 
 export interface AxelorResponse<T = any> {
@@ -99,10 +99,10 @@ export class AxelorClient {
 
   public async authenticate(): Promise<boolean> {
     if (this.isAuthenticating) {
-      return this.isAuthenticating;
+      return await this.isAuthenticating;
     }
 
-    this.isAuthenticating = (async () => {
+    const authPromise = (async () => {
       try {
         const params = new URLSearchParams();
         params.append("username", this.username);
@@ -117,11 +117,12 @@ export class AxelorClient {
             },
             maxRedirects: 0,
             validateStatus: (status) => status === 200 || status === 302 || status === 303,
+            timeout: 10000,
           }
         );
 
         this.extractCookiesAndTokens(response);
-        return true;
+        return Boolean(this.jsessionId);
       } catch (err: any) {
         console.error("Axelor authentication failed:", err.message);
         return false;
@@ -130,7 +131,8 @@ export class AxelorClient {
       }
     })();
 
-    return this.isAuthenticating;
+    this.isAuthenticating = authPromise;
+    return await authPromise;
   }
 
   public async getAppInfo(): Promise<any> {

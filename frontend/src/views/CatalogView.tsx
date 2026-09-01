@@ -349,9 +349,27 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ initialTab }) => {
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
+  const DEFAULT_CATEGORIES: ProductCategory[] = [
+    { id: 1, name: "Bebidas y Refrescos", code: "BEB", description: "Bebidas, aguas y refrescos embotellados" },
+    { id: 2, name: "Snacks y Botanas", code: "SNK", description: "Frituras, papas, galletas y botanas" },
+    { id: 3, name: "Empaques y Embalaje", code: "EMP", description: "Cajas de cartón, cinta y rollos de emplaye" },
+    { id: 4, name: "Servicios y Fletes", code: "SRV", description: "Servicios de transporte, maniobra y flete" },
+  ];
+
+  const DEFAULT_UOMS_LIST: UnitOfMeasure[] = [
+    { code: "PZA", name: "Pieza / Unidad", symbol: "pza", category: "UNIT" },
+    { code: "KGM", name: "Kilogramo", symbol: "kg", category: "WEIGHT" },
+    { code: "LTR", name: "Litro", symbol: "lt", category: "VOLUME" },
+    { code: "MTR", name: "Metro", symbol: "m", category: "LENGTH" },
+    { code: "XBX", name: "Caja", symbol: "cj", category: "UNIT" },
+    { code: "XPK", name: "Paquete", symbol: "paq", category: "UNIT" },
+    { code: "E48", name: "Unidad de Servicio", symbol: "srv", category: "SERVICE" },
+    { code: "HUR", name: "Hora de Servicio", symbol: "hr", category: "SERVICE" },
+  ];
+
   const [products, setProducts] = useState<ProductRecord[]>([]);
-  const [categories, setCategories] = useState<ProductCategory[]>([]);
-  const [uoms, setUoms] = useState<UnitOfMeasure[]>([]);
+  const [categories, setCategories] = useState<ProductCategory[]>(DEFAULT_CATEGORIES);
+  const [uoms, setUoms] = useState<UnitOfMeasure[]>(DEFAULT_UOMS_LIST);
   const [customers, setCustomers] = useState<PartnerRecord[]>([]);
   const [suppliers, setSuppliers] = useState<PartnerRecord[]>([]);
   const [priceLists, setPriceLists] = useState<PriceListRecord[]>([]);
@@ -727,13 +745,31 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ initialTab }) => {
           if (s.productId) stockMap[s.productId] = s.currentStock;
         });
         setStockLevels(stockMap);
-        setProducts(prodData || []);
-        if (catData && catData.length > 0) setCategories(catData);
-        if (uomData && uomData.length > 0) setUoms(uomData);
+        setProducts(prodData && prodData.length > 0 ? prodData : []);
+        setCategories(catData && catData.length > 0 ? catData : [
+          { id: 1, name: "Bebidas y Refrescos", code: "BEB", description: "Bebidas, aguas y jugos" },
+          { id: 2, name: "Snacks y Botanas", code: "SNK", description: "Frituras y galletas" },
+          { id: 3, name: "Empaques y Embalaje", code: "EMP", description: "Cajas y plástico" },
+          { id: 4, name: "Servicios y Fletes", code: "SRV", description: "Fletes y logística" },
+        ]);
+        setUoms(uomData && uomData.length > 0 ? uomData : [
+          { code: "PZA", name: "Pieza / Unidad", symbol: "pza", category: "UNIT" },
+          { code: "KGM", name: "Kilogramo", symbol: "kg", category: "WEIGHT" },
+          { code: "LTR", name: "Litro", symbol: "lt", category: "VOLUME" },
+          { code: "XBX", name: "Caja", symbol: "cj", category: "UNIT" },
+          { code: "XPK", name: "Paquete", symbol: "paq", category: "UNIT" },
+        ]);
       } else if (tabToLoad === "CATEGORIES") {
         const catData = await catalogApi.listCategories().catch(() => []);
+        const defaultCats = [
+          { id: 1, name: "Bebidas y Refrescos", code: "BEB", description: "Bebidas, aguas y refrescos embotellados" },
+          { id: 2, name: "Snacks y Botanas", code: "SNK", description: "Frituras, papas, galletas y botanas" },
+          { id: 3, name: "Empaques y Embalaje", code: "EMP", description: "Cajas de cartón, cinta y rollos de emplaye" },
+          { id: 4, name: "Servicios y Fletes", code: "SRV", description: "Servicios de transporte, maniobra y flete" },
+        ];
+        const combinedCats = catData && catData.length > 0 ? catData : defaultCats;
         const seenCat = new Set<string>();
-        const uniqueCats = (catData || []).filter((c: any) => {
+        const uniqueCats = combinedCats.filter((c: any) => {
           const key = (c.name || c.code || "").trim().toLowerCase() || String(c.id);
           if (!key || seenCat.has(key)) return false;
           seenCat.add(key);
@@ -1270,70 +1306,6 @@ const TAB_CONFIGS: Record<
             </Button>
           )}
         </div>
-      </div>
-
-      {/* Horizontal Sub-tabs Navigation (Contextualizada por Módulo) */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-200/60 dark:border-white/10 text-xs font-semibold scrollbar-none">
-        {(() => {
-          let visibleTabs: Array<{ id: CatalogTab; label: string; icon: any; count?: number }> = [
-            { id: "PRODUCTS", label: "Catálogo de Productos", icon: Boxes, count: products.length },
-            { id: "CATEGORIES", label: "Familias / Categorías", icon: Layers, count: categories.length },
-            { id: "UOM", label: "Unidades (UoM)", icon: Ruler, count: uoms.length },
-            { id: "PRICELISTS", label: "Listas de Precios", icon: Tags, count: priceLists.length },
-          ];
-
-          if (initialTab === "CUSTOMERS" || initialTab === "PRICELISTS") {
-            visibleTabs = [
-              { id: "CUSTOMERS", label: "Directorio de Clientes", icon: Users, count: customers.length },
-              { id: "PRICELISTS", label: "Listas de Precios & Tarifas", icon: Tags, count: priceLists.length },
-            ];
-          } else if (initialTab === "SUPPLIERS") {
-            visibleTabs = [
-              { id: "SUPPLIERS", label: "Padrón de Proveedores (CxP)", icon: Building2, count: suppliers.length },
-            ];
-          } else if (initialTab === "COMPANY" || initialTab === "BANKS") {
-            visibleTabs = [
-              { id: "COMPANY", label: "Configuración Fiscal & Empresa", icon: ShieldCheck },
-              { id: "BANKS", label: "Cuentas Bancarias", icon: Landmark, count: bankAccounts.length },
-            ];
-          }
-
-          return visibleTabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => {
-                  setActiveTab(tab.id as CatalogTab);
-                  setSearchQuery("");
-                }}
-                className={clsx(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all shrink-0 font-medium text-xs",
-                  isActive
-                    ? "bg-etiserv-blue text-white shadow-xs font-bold"
-                    : "bg-slate-100 dark:bg-white/[0.04] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10"
-                )}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{tab.label}</span>
-                {tab.count !== undefined && (
-                  <span
-                    className={clsx(
-                      "px-1.5 py-0.2 rounded-full text-[10px] font-mono",
-                      isActive
-                        ? "bg-white/20 text-white font-bold"
-                        : "bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-slate-400"
-                    )}
-                  >
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            );
-          });
-        })()}
       </div>
 
       {/* Search Input for Data Tabs */}
