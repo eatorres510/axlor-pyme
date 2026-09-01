@@ -749,8 +749,13 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ initialTab }) => {
           catalogApi.listUoMs().catch(() => []),
           stockApi.getStockLevels(compId).catch(() => []),
         ]);
+        const rawStock = Array.isArray(stockData)
+          ? stockData
+          : Array.isArray((stockData as any)?.data)
+          ? (stockData as any).data
+          : [];
         const stockMap: Record<number, number> = {};
-        (stockData || []).forEach((s: any) => {
+        rawStock.forEach((s: any) => {
           if (s.productId) stockMap[s.productId] = s.currentStock;
         });
         setStockLevels(stockMap);
