@@ -12,28 +12,31 @@ export type UnitOfMeasure = z.infer<typeof UnitOfMeasureSchema>;
 
 // --- Categorías / Familias de Producto ---
 export const ProductCategorySchema = z.object({
-  name: z.string().min(2, "El nombre de categoría es requerido"),
+  name: z.string().min(1, "El nombre de categoría es requerido"),
   code: z.string().min(1, "El código es requerido"),
-  description: z.string().optional(),
-  parentId: z.number().optional(),
+  description: z.string().optional().nullable(),
+  parentId: z.coerce.number().optional().nullable(),
 });
 
 export type ProductCategory = z.infer<typeof ProductCategorySchema>;
 
 // --- Productos / Servicios ---
 export const ProductSchema = z.object({
-  name: z.string().min(2, "El nombre del producto es requerido"),
+  name: z.string().min(1, "El nombre del producto es requerido"),
   code: z.string().min(1, "El código es requerido"),
-  barCode: z.string().optional(),
+  barCode: z.string().optional().nullable(),
   salePrice: z.coerce.number().min(0, "El precio de venta no puede ser negativo"),
   purchasePrice: z.coerce.number().min(0).optional().default(0),
-  categoryId: z.number().optional().default(1),
-  categoryName: z.string().optional(),
+  categoryId: z.coerce.number().optional().default(1),
+  categoryName: z.string().optional().nullable(),
+  subCategory: z.string().optional().nullable(),
+  costType: z.string().optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
   uomCode: z.string().optional().default("PZA"),
   uomName: z.string().optional().default("Pieza"),
   taxRate: z.coerce.number().optional().default(16), // 16%, 8%, 0%, Exento
   minStock: z.coerce.number().optional().default(5),
-  companyId: z.number().optional().default(1),
+  companyId: z.coerce.number().optional().default(13),
 });
 
 export type ProductInput = z.infer<typeof ProductSchema>;

@@ -361,7 +361,7 @@ export class CatalogService {
     }
   }
 
-  public async createCategory(input: { name: string; code?: string; description?: string }): Promise<any> {
+  public async createCategory(input: { name: string; code?: string; description?: string | null }): Promise<any> {
     const uniqueCode = input.code ? input.code.toUpperCase() : `CAT-${Math.floor(100 + Math.random() * 900)}`;
     const payload = {
       name: input.name,
@@ -376,7 +376,7 @@ export class CatalogService {
     }
   }
 
-  public async updateCategory(id: number, input: { name?: string; code?: string; description?: string }): Promise<any> {
+  public async updateCategory(id: number, input: { name?: string; code?: string; description?: string | null }): Promise<any> {
     const payload: any = { id };
     if (input.name) payload.name = input.name;
     if (input.code) payload.code = input.code;
