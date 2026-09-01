@@ -3021,11 +3021,11 @@ const TAB_CONFIGS: Record<
             />
 
             <Select
-              label="Unidad de Medida (UoM)"
-              value={prodForm.uomCode}
+              label="Unidad de Medida (UOM)"
+              value={prodForm.uomCode || ((uoms && uoms.length > 0) ? uoms[0].code : "PZA")}
               onChange={(e) => setProdForm({ ...prodForm, uomCode: e.target.value })}
             >
-              {uoms.map((u) => (
+              {(uoms && uoms.length > 0 ? uoms : DEFAULT_UOMS_LIST).map((u) => (
                 <option key={u.code} value={u.code}>
                   {u.code} - {u.name} ({u.symbol})
                 </option>
@@ -3106,7 +3106,7 @@ const TAB_CONFIGS: Record<
           <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/30 text-[11px] text-blue-800 dark:text-blue-300 flex items-center gap-1.5">
             <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
             <span>
-              Valuación activa por <strong>{prodForm.costType === "WEIGHTED_AVERAGE" ? "Costo Promedio Ponderado (CPP)" : prodForm.costType}</strong>. Sincronizado en Axelor Open Suite.
+              Valuación activa por <strong>{prodForm.costType === "WEIGHTED_AVERAGE" ? "Costo Promedio Ponderado (CPP)" : prodForm.costType}</strong>. Control de inventario y costeo en tiempo real.
             </span>
           </div>
 
