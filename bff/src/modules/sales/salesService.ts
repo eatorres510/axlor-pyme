@@ -121,7 +121,7 @@ export class SalesService {
 
   public async createQuote(payload: CreateQuotePayload): Promise<SaleQuoteRecord> {
     const subtotal = payload.items.reduce((sum, item) => {
-      const discountedPrice = item.unitPrice * (1 - item.discountPct / 100);
+      const discountedPrice = item.unitPrice * (1 - (item.discountPct || 0) / 100);
       return sum + discountedPrice * item.qty;
     }, 0);
     const taxAmount = Number((subtotal * 0.16).toFixed(2));
@@ -134,12 +134,25 @@ export class SalesService {
       payload.companyId
     );
 
+    let partnerVersion = 0;
+    try {
+      const partnerRes = await axelor.fetch("com.axelor.apps.base.db.Partner", payload.partnerId);
+      if (partnerRes && partnerRes.version !== undefined) {
+        partnerVersion = partnerRes.version;
+      }
+    } catch {}
+
+    const today = new Date().toISOString().slice(0, 10);
+    const validUntilDate = payload.validUntil || new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10);
+
     const saleOrderPayload: any = {
       saleOrderSeq: quoteSeq,
-      company: { id: payload.companyId },
-      clientPartner: { id: payload.partnerId },
-      orderDate: new Date().toISOString().slice(0, 10),
-      estimatedDeliveryDate: payload.validUntil || new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
+      company: { id: payload.companyId || 1 },
+      clientPartner: { id: payload.partnerId, version: partnerVersion },
+      currency: { id: 1 },
+      creationDate: today,
+      orderDate: today,
+      estimatedDeliveryDate: validUntilDate,
       statusSelect: 1, // 1: Draft / Devis
       exTaxTotal: Number(subtotal.toFixed(2)),
       taxTotal: taxAmount,
@@ -147,32 +160,36 @@ export class SalesService {
       description: payload.notes || `Cotización B2B ${quoteSeq}`,
       saleOrderLineList: payload.items.map((it) => ({
         product: { id: it.productId },
+        productName: it.productName || "Producto",
         qty: it.qty,
         price: it.unitPrice,
-        discount: it.discountPct,
-        exTaxTotal: Number((it.unitPrice * (1 - it.discountPct / 100) * it.qty).toFixed(2)),
+        discount: it.discountPct || 0,
+        exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+        unit: { id: 1 },
       })),
     };
 
     let savedId = `QUO-${Date.now()}`;
     try {
       const res = await axelor.create("com.axelor.apps.sale.db.SaleOrder", saleOrderPayload);
-      if (res.data && res.data.length > 0 && res.data[0].id) {
-        savedId = String(res.data[0].id);
+      const createdItem = Array.isArray(res.data) ? res.data[0] : res.data;
+      if (createdItem && createdItem.id) {
+        savedId = String(createdItem.id);
       }
     } catch (err: any) {
-      console.warn("[SalesService] Error creando cotización en Axelor:", err.message);
+      console.error("[SalesService] Error creando cotización en Axelor:", err.message);
+      throw err;
     }
 
     return {
       id: savedId,
       quoteSeq,
-      companyId: payload.companyId,
+      companyId: payload.companyId || 1,
       partnerId: payload.partnerId,
       partnerName: payload.partnerName,
       priceListCode: payload.priceListCode,
-      date: new Date().toISOString().slice(0, 10),
-      validUntil: payload.validUntil || new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
+      date: today,
+      validUntil: validUntilDate,
       status: "DRAFT",
       items: payload.items,
       subtotal: Number(subtotal.toFixed(2)),

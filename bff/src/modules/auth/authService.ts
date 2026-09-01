@@ -1,4 +1,4 @@
-﻿import jwt from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import { axelor } from "../../services/axelor/axelorClient";
 import { AuthUserToken, LoginPayload, RegisterUserPayload } from "./authTypes";
 import { tenantsRegistry, collaboratorsRegistry } from "../saas/saasService";
@@ -68,8 +68,8 @@ export class AuthService {
         planCode: tenant.planCode,
         activeCompanyId: Number(activeComp.id),
         activeCompanyName: activeComp.name,
-        allowedCompanies: tenantCompanies.length > 0 ? tenantCompanies : [activeComp],
-        allowedCompanyIds: tenantCompanies.length > 0 ? tenantCompanies.map((c) => Number(c.id)) : [Number(activeComp.id)],
+        allowedCompanies: companies,
+        allowedCompanyIds: companies.map((c) => Number(c.id)),
       };
     }
     // 3. Cajero POS
