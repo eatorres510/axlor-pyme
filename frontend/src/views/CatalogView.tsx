@@ -367,7 +367,16 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ initialTab }) => {
     { code: "HUR", name: "Hora de Servicio", symbol: "hr", category: "SERVICE" },
   ];
 
-  const [products, setProducts] = useState<ProductRecord[]>([]);
+  const INITIAL_PRODUCTS: ProductRecord[] = [
+    { id: 1, name: "Agua Mineral 600ml", code: "7501055312345", barCode: "7501055312345", salePrice: 15.0, purchasePrice: 10.5, costPrice: 10.5, categoryId: 1, categoryName: "Bebidas y Refrescos", uomCode: "PZA", uomName: "Pieza", taxRate: 16 },
+    { id: 2, name: "Refresco Cola 600ml", code: "7501055300011", barCode: "7501055300011", salePrice: 17.5, purchasePrice: 11.0, costPrice: 11.0, categoryId: 1, categoryName: "Bebidas y Refrescos", uomCode: "PZA", uomName: "Pieza", taxRate: 16 },
+    { id: 3, name: "Agua Purificada 1.5L", code: "7501055312352", barCode: "7501055312352", salePrice: 20.0, purchasePrice: 12.0, costPrice: 12.0, categoryId: 1, categoryName: "Bebidas y Refrescos", uomCode: "PZA", uomName: "Pieza", taxRate: 16 },
+    { id: 4, name: "Papas Fritas Sal 170g", code: "7501000111223", barCode: "7501000111223", salePrice: 38.0, purchasePrice: 26.0, costPrice: 26.0, categoryId: 2, categoryName: "Snacks y Botanas", uomCode: "PZA", uomName: "Pieza", taxRate: 16 },
+    { id: 5, name: "Galletas Chocolate 120g", code: "7501000222334", barCode: "7501000222334", salePrice: 22.0, purchasePrice: 14.5, costPrice: 14.5, categoryId: 2, categoryName: "Snacks y Botanas", uomCode: "PZA", uomName: "Pieza", taxRate: 16 },
+    { id: 6, name: "Caja Cartón 40x40x40 (Paq 25)", code: "EMP-CJ-01", barCode: "7502220101010", salePrice: 320.0, purchasePrice: 210.0, costPrice: 210.0, categoryId: 3, categoryName: "Empaques y Embalaje", uomCode: "XPK", uomName: "Paquete", taxRate: 16 },
+  ];
+
+  const [products, setProducts] = useState<ProductRecord[]>(INITIAL_PRODUCTS);
   const [categories, setCategories] = useState<ProductCategory[]>(DEFAULT_CATEGORIES);
   const [uoms, setUoms] = useState<UnitOfMeasure[]>(DEFAULT_UOMS_LIST);
   const [customers, setCustomers] = useState<PartnerRecord[]>([]);
@@ -745,20 +754,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ initialTab }) => {
           if (s.productId) stockMap[s.productId] = s.currentStock;
         });
         setStockLevels(stockMap);
-        setProducts(prodData && prodData.length > 0 ? prodData : []);
-        setCategories(catData && catData.length > 0 ? catData : [
-          { id: 1, name: "Bebidas y Refrescos", code: "BEB", description: "Bebidas, aguas y jugos" },
-          { id: 2, name: "Snacks y Botanas", code: "SNK", description: "Frituras y galletas" },
-          { id: 3, name: "Empaques y Embalaje", code: "EMP", description: "Cajas y plástico" },
-          { id: 4, name: "Servicios y Fletes", code: "SRV", description: "Fletes y logística" },
-        ]);
-        setUoms(uomData && uomData.length > 0 ? uomData : [
-          { code: "PZA", name: "Pieza / Unidad", symbol: "pza", category: "UNIT" },
-          { code: "KGM", name: "Kilogramo", symbol: "kg", category: "WEIGHT" },
-          { code: "LTR", name: "Litro", symbol: "lt", category: "VOLUME" },
-          { code: "XBX", name: "Caja", symbol: "cj", category: "UNIT" },
-          { code: "XPK", name: "Paquete", symbol: "paq", category: "UNIT" },
-        ]);
+        setProducts(prodData && prodData.length > 0 ? prodData : INITIAL_PRODUCTS);
+        setCategories(catData && catData.length > 0 ? catData : DEFAULT_CATEGORIES);
+        setUoms(uomData && uomData.length > 0 ? uomData : DEFAULT_UOMS_LIST);
       } else if (tabToLoad === "CATEGORIES") {
         const catData = await catalogApi.listCategories().catch(() => []);
         const defaultCats = [
