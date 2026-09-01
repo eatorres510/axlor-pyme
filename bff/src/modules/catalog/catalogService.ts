@@ -341,16 +341,20 @@ export class CatalogService {
         sortBy: ["name"],
       });
       const rawList = Array.isArray(res.data) && res.data.length > 0 ? res.data : [];
-      if (rawList.length > 0) {
-        const mapped = rawList.map((c: any) => ({
-          id: c.id,
-          name: c.name || `Categoría ${c.id}`,
-          code: c.code || `CAT-${c.id}`,
-          description: c.description || c.name || "Familia de productos",
-        }));
-        return mapped;
+      const mapped = rawList.map((c: any) => ({
+        id: c.id,
+        name: c.name || `Categoría ${c.id}`,
+        code: c.code || `CAT-${c.id}`,
+        description: c.description || c.name || "Familia de productos",
+      }));
+
+      const seen = new Set(mapped.map((m) => m.name.toLowerCase()));
+      for (const def of SEED_CATEGORIES) {
+        if (!seen.has(def.name.toLowerCase())) {
+          mapped.push(def);
+        }
       }
-      return SEED_CATEGORIES;
+      return mapped.length > 0 ? mapped : SEED_CATEGORIES;
     } catch (err: any) {
       console.warn("[CatalogService] Error consultando categorías en Axelor:", err.message);
       return SEED_CATEGORIES;

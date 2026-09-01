@@ -818,6 +818,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ initialTab }) => {
 
   const handleOpenCreate = (tab: CatalogTab) => {
     setEditingId(null);
+    const firstCatId = (categories && categories.length > 0) ? categories[0].id : (DEFAULT_CATEGORIES[0]?.id || 1);
+    const firstUomCode = (uoms && uoms.length > 0) ? uoms[0].code : "PZA";
+
     if (tab === "PRODUCTS") {
       setProdForm({
         name: "",
@@ -825,11 +828,11 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ initialTab }) => {
         barCode: "",
         salePrice: 0,
         purchasePrice: 0,
-        categoryId: categories[0]?.id || 1,
+        categoryId: firstCatId,
         subCategory: "General",
         costType: "WEIGHTED_AVERAGE",
         imageUrl: "",
-        uomCode: "PZA",
+        uomCode: firstUomCode,
         taxRate: 16,
       });
     } else if (tab === "CATEGORIES") {
@@ -3000,10 +3003,10 @@ const TAB_CONFIGS: Record<
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Select
               label="Familia / Categoría Principal"
-              value={prodForm.categoryId}
+              value={prodForm.categoryId || (categories && categories.length > 0 ? categories[0].id : DEFAULT_CATEGORIES[0]?.id || 1)}
               onChange={(e) => setProdForm({ ...prodForm, categoryId: Number(e.target.value) })}
             >
-              {categories.map((c) => (
+              {(categories && categories.length > 0 ? categories : DEFAULT_CATEGORIES).map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name} ({c.code})
                 </option>
