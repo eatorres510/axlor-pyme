@@ -609,7 +609,6 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
         notes: quoteNotes || "Cotización Comercial B2B",
       });
 
-      alert("¡Cotización emitida y registrada exitosamente!");
       try {
         localStorage.removeItem("b2b_draft_quote");
       } catch {}
@@ -617,7 +616,8 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
       setQuoteNotes("");
       setIsCustomerUnlocked(false);
       setQuoteItems([{ productId: 0, productName: "", productCode: "", qty: 1, unitPrice: 0, discountPct: 0 }]);
-      loadData();
+      await loadData();
+      alert("¡Cotización emitida y registrada exitosamente!");
     } catch (err: any) {
       alert(`Error al crear cotización: ${err.message || err.error || "Verifique los datos"}`);
     } finally {

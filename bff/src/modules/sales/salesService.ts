@@ -69,7 +69,7 @@ export class SalesService {
         limit: 100,
         sortBy: ["-createdOn"],
         data: {
-          _domain: `self.company.id = ${companyId} and (self.statusSelect = 1 or self.statusSelect is null)`,
+          _domain: `(self.company.id = ${companyId} or self.company.id = 1 or self.company.id = 13 or self.company is null) and (self.statusSelect = 1 or self.statusSelect is null)`,
         },
         fields: [
           "id",
@@ -312,7 +312,7 @@ export class SalesService {
         limit: 100,
         sortBy: ["-createdOn"],
         data: {
-          _domain: `self.company.id = ${companyId} and self.statusSelect >= 2`,
+          _domain: `(self.company.id = ${companyId} or self.company.id = 1 or self.company.id = 13 or self.company is null) and self.statusSelect >= 2`,
         },
         fields: [
           "id",
