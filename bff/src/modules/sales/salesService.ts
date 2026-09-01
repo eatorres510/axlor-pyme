@@ -1,4 +1,4 @@
-﻿import { axelor } from "../../services/axelor/axelorClient.js";
+import { axelor } from "../../services/axelor/axelorClient.js";
 import { sequenceService } from "../../services/axelor/sequenceService.js";
 import { catalogService } from "../catalog/catalogService.js";
 import { CreateQuotePayload, CreateB2BOrderPayload, SaleQuoteItem } from "./salesTypes.js";
@@ -203,17 +203,17 @@ export class SalesService {
         const lines = Array.isArray(so.saleOrderLineList) ? so.saleOrderLineList : [];
         return {
           id: String(so.id),
-          quoteSeq: so.saleOrderSeq || quoteId,
-          companyId: so.company?.id || 13,
+          quoteSeq: so.saleOrderSeq || `COT-2026-${String(so.id).padStart(5, "0")}`,
+          companyId: so.company?.id || 1,
           partnerId: so.clientPartner?.id || 1,
-          partnerName: so.clientPartner?.name || "Cliente",
+          partnerName: so.clientPartner?.name || so.clientPartner?.simpleFullName || "Cliente General",
           priceListCode: "PUBLIC",
           date: so.orderDate || new Date().toISOString().slice(0, 10),
           validUntil: so.estimatedDeliveryDate || new Date().toISOString().slice(0, 10),
           status: so.statusSelect === 1 ? "DRAFT" : "WON",
           items: lines.map((l: any) => ({
             productId: l.product?.id || 1,
-            productName: l.product?.name || "Producto",
+            productName: l.productName || l.product?.name || "Producto",
             productCode: l.product?.code || "SKU",
             qty: Number(l.qty || 1),
             unitPrice: Number(l.price || 0),
@@ -226,7 +226,7 @@ export class SalesService {
         };
       }
     } catch (err: any) {
-      console.warn("[SalesService] Error consultando cotización en Axelor:", err.message);
+      console.warn("[SalesService] Error obteniendo cotización en Axelor:", err.message);
     }
     return null;
   }
@@ -237,25 +237,40 @@ export class SalesService {
       if (!existing) throw new Error("Cotización no encontrada en Axelor");
 
       const idNum = parseInt(existing.id.replace(/\D/g, ""), 10);
-      const updateData: any = { id: idNum };
+      let soVersion = 0;
+      try {
+        const soRaw = await axelor.fetch("com.axelor.apps.sale.db.SaleOrder", idNum);
+        if (soRaw && soRaw.version !== undefined) soVersion = soRaw.version;
+      } catch {}
+
+      const updateData: any = { id: idNum, version: soVersion };
       if (payload.partnerId) updateData.clientPartner = { id: payload.partnerId };
       if (payload.notes !== undefined) updateData.description = payload.notes;
 
       if (payload.items && payload.items.length > 0) {
         const subtotal = payload.items.reduce((sum, item) => {
-          const discountedPrice = item.unitPrice * (1 - item.discountPct / 100);
+          const discountedPrice = item.unitPrice * (1 - (item.discountPct || 0) / 100);
           return sum + discountedPrice * item.qty;
         }, 0);
         updateData.exTaxTotal = Number(subtotal.toFixed(2));
         updateData.taxTotal = Number((subtotal * 0.16).toFixed(2));
         updateData.inTaxTotal = Number((subtotal + updateData.taxTotal).toFixed(2));
+        updateData.saleOrderLineList = payload.items.map((it) => ({
+          product: { id: it.productId },
+          productName: it.productName || "Producto",
+          qty: it.qty,
+          price: it.unitPrice,
+          discount: it.discountPct || 0,
+          exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+          unit: { id: 1 },
+        }));
       }
 
       await axelor.update("com.axelor.apps.sale.db.SaleOrder", updateData);
       return await this.getQuote(quoteId);
     } catch (err: any) {
-      console.warn("[SalesService] Error actualizando cotización en Axelor:", err.message);
-      return { id: quoteId, ...payload };
+      console.error("[SalesService] Error actualizando cotización en Axelor:", err.message);
+      throw err;
     }
   }
 
@@ -309,7 +324,7 @@ export class SalesService {
           status: so.statusSelect === 3 ? "INVOICED" : "CONFIRMED",
           items: lines.map((l: any) => ({
             productId: l.product?.id || 1,
-            productName: l.product?.name || "Producto",
+            productName: l.productName || l.product?.name || "Producto",
             productCode: l.product?.code || "SKU",
             qty: Number(l.qty || 1),
             unitPrice: Number(l.price || 0),
@@ -350,14 +365,14 @@ export class SalesService {
         return {
           id: String(so.id),
           orderSeq: so.saleOrderSeq || orderId,
-          companyId: so.company?.id || 13,
+          companyId: so.company?.id || 1,
           partnerId: so.clientPartner?.id || 1,
-          partnerName: so.clientPartner?.name || "Cliente",
+          partnerName: so.clientPartner?.name || so.clientPartner?.simpleFullName || "Cliente General",
           date: so.orderDate || new Date().toISOString().slice(0, 10),
           status: so.statusSelect === 3 ? "INVOICED" : "CONFIRMED",
           items: lines.map((l: any) => ({
             productId: l.product?.id || 1,
-            productName: l.product?.name || "Producto",
+            productName: l.productName || l.product?.name || "Producto",
             productCode: l.product?.code || "SKU",
             qty: Number(l.qty || 1),
             unitPrice: Number(l.price || 0),
@@ -378,7 +393,7 @@ export class SalesService {
 
   public async createOrder(payload: CreateB2BOrderPayload): Promise<B2BOrderRecord> {
     const subtotal = payload.items.reduce((sum, item) => {
-      const discountedPrice = item.unitPrice * (1 - item.discountPct / 100);
+      const discountedPrice = item.unitPrice * (1 - (item.discountPct || 0) / 100);
       return sum + discountedPrice * item.qty;
     }, 0);
     const taxAmount = Number((subtotal * 0.16).toFixed(2));
@@ -391,11 +406,23 @@ export class SalesService {
       payload.companyId
     );
 
+    let partnerVersion = 0;
+    try {
+      const partnerRes = await axelor.fetch("com.axelor.apps.base.db.Partner", payload.partnerId);
+      if (partnerRes && partnerRes.version !== undefined) {
+        partnerVersion = partnerRes.version;
+      }
+    } catch {}
+
+    const today = new Date().toISOString().slice(0, 10);
+
     const saleOrderPayload: any = {
       saleOrderSeq: orderSeq,
-      company: { id: payload.companyId },
-      clientPartner: { id: payload.partnerId },
-      orderDate: new Date().toISOString().slice(0, 10),
+      company: { id: payload.companyId || 1 },
+      clientPartner: { id: payload.partnerId, version: partnerVersion },
+      currency: { id: 1 },
+      creationDate: today,
+      orderDate: today,
       statusSelect: 2, // 2: Order confirmed
       exTaxTotal: Number(subtotal.toFixed(2)),
       taxTotal: taxAmount,
@@ -403,10 +430,12 @@ export class SalesService {
       description: payload.notes || `Pedido B2B ${orderSeq}`,
       saleOrderLineList: payload.items.map((it) => ({
         product: { id: it.productId },
+        productName: it.productName || "Producto",
         qty: it.qty,
         price: it.unitPrice,
-        discount: it.discountPct,
-        exTaxTotal: Number((it.unitPrice * (1 - it.discountPct / 100) * it.qty).toFixed(2)),
+        discount: it.discountPct || 0,
+        exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+        unit: { id: 1 },
       })),
     };
 
@@ -417,22 +446,23 @@ export class SalesService {
         savedId = String(res.data[0].id);
       }
     } catch (err: any) {
-      console.warn("[SalesService] Error creando pedido en Axelor:", err.message);
+      console.error("[SalesService] Error creando pedido en Axelor:", err.message);
+      throw err;
     }
 
     return {
       id: savedId,
       orderSeq,
-      companyId: payload.companyId,
+      companyId: payload.companyId || 1,
       partnerId: payload.partnerId,
       partnerName: payload.partnerName,
-      date: new Date().toISOString().slice(0, 10),
+      date: today,
       status: "CONFIRMED",
       items: payload.items,
       subtotal: Number(subtotal.toFixed(2)),
       taxAmount,
       total,
-      paymentTerms: payload.paymentTerms,
+      paymentTerms: payload.paymentTerms || "30_DIAS_CREDITO",
       creditWarning: "Venta con condición de pago a crédito (30 días)",
       notes: payload.notes,
     };
