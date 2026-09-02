@@ -577,9 +577,150 @@ export class SalesService {
     };
   }
 
+  public async createDirectInvoice(payload: {
+    companyId: number;
+    partnerId: number;
+    partnerName: string;
+    items: SaleQuoteItem[];
+    paymentTerms?: string;
+    notes?: string;
+  }): Promise<any> {
+    const today = new Date().toISOString().slice(0, 10);
+    const subtotal = payload.items.reduce(
+      (sum, it) => sum + (it.qty || 1) * (it.unitPrice || 0) * (1 - (it.discountPct || 0) / 100),
+      0
+    );
+    const taxAmount = Number((subtotal * 0.16).toFixed(2));
+    const total = Number((subtotal + taxAmount).toFixed(2));
+
+    const currencyObj = await this.getCompanyCurrency(payload.companyId || 13);
+    let partnerVersion = 0;
+    try {
+      const partnerRes = await axelor.fetch("com.axelor.apps.base.db.Partner", payload.partnerId);
+      if (partnerRes && partnerRes.version !== undefined) {
+        partnerVersion = partnerRes.version;
+      }
+    } catch {}
+
+    // 1. Create Pedido B2B
+    const orderSeq = await sequenceService.getNextSequence(
+      "PED",
+      "com.axelor.apps.sale.db.SaleOrder",
+      "saleOrderSeq",
+      payload.companyId || 13
+    );
+
+    let orderId = Date.now();
+    try {
+      const soRes = await axelor.create("com.axelor.apps.sale.db.SaleOrder", {
+        saleOrderSeq: orderSeq,
+        orderDate: today,
+        statusSelect: 3, // Invoiced
+        company: { id: payload.companyId || 13 },
+        currency: currencyObj,
+        clientPartner: { id: payload.partnerId, version: partnerVersion },
+        mainPartner: { id: payload.partnerId, version: partnerVersion },
+        exTaxTotal: subtotal,
+        taxTotal: taxAmount,
+        inTaxTotal: total,
+        description: `Factura Rápida B2B: ${payload.notes || "Venta Directa"}`,
+      });
+
+      if (soRes.data && soRes.data.length > 0 && soRes.data[0].id) {
+        orderId = Number(soRes.data[0].id);
+
+        for (const it of payload.items) {
+          try {
+            await axelor.create("com.axelor.apps.sale.db.SaleOrderLine", {
+              saleOrder: { id: orderId },
+              product: { id: it.productId },
+              productName: it.productName || "Producto",
+              price: it.unitPrice,
+              qty: it.qty,
+              discount: it.discountPct || 0,
+              exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+              unit: { id: 1 },
+            });
+          } catch {}
+        }
+      }
+    } catch (e: any) {
+      console.warn("[SalesService] Error creando pedido para factura rápida:", e.message);
+    }
+
+    // 2. Create Factura Fiscal
+    const invoiceSeq = await sequenceService.getNextSequence(
+      "FAC",
+      "com.axelor.apps.account.db.Invoice",
+      "invoiceId",
+      payload.companyId || 13
+    );
+
+    let invoiceId = Date.now();
+    try {
+      const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", {
+        invoiceId: invoiceSeq,
+        invoiceDate: today,
+        statusSelect: 2, // 2: Validada / Por cobrar
+        operationTypeSelect: 1, // 1: Cliente (CxC)
+        operationSubTypeSelect: 1, // 1: Factura Estándar
+        saleOrder: { id: orderId },
+        partner: { id: payload.partnerId, version: partnerVersion },
+        company: { id: payload.companyId || 13 },
+        currency: currencyObj,
+        exTaxTotal: subtotal,
+        taxTotal: taxAmount,
+        inTaxTotal: total,
+        amountRemaining: total,
+        amountPaid: 0,
+        specificNotes: `Factura Rápida B2B (Pedido: ${orderSeq})`,
+        description: `Factura Rápida B2B (Pedido: ${orderSeq})`,
+      });
+
+      if (invRes.data && invRes.data.length > 0 && invRes.data[0].id) {
+        invoiceId = Number(invRes.data[0].id);
+
+        for (const it of payload.items) {
+          try {
+            await axelor.create("com.axelor.apps.account.db.InvoiceLine", {
+              invoice: { id: invoiceId },
+              product: { id: it.productId },
+              productName: it.productName || "Producto",
+              price: it.unitPrice,
+              qty: it.qty,
+              discount: it.discountPct || 0,
+              exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+              unit: { id: 1 },
+            });
+          } catch {}
+        }
+      }
+    } catch (e: any) {
+      console.warn("[SalesService] Error creando factura rápida en Axelor:", e.message);
+    }
+
+    return {
+      orderId,
+      orderSeq,
+      invoiceId,
+      invoiceSeq,
+      total,
+      partnerName: payload.partnerName,
+    };
+  }
+
   public async convertToOrder(quoteId: string): Promise<B2BOrderRecord> {
     const quote = await this.getQuote(quoteId);
     if (!quote) throw new Error("Cotización no encontrada en Axelor");
+
+    const currencyObj = await this.getCompanyCurrency(quote.companyId);
+    let partnerVersion = 0;
+    try {
+      const partnerRes = await axelor.fetch("com.axelor.apps.base.db.Partner", quote.partnerId);
+      if (partnerRes && partnerRes.version !== undefined) {
+        partnerVersion = partnerRes.version;
+      }
+    } catch {}
 
     const orderSeq = await sequenceService.getNextSequence(
       "PED",
@@ -588,28 +729,63 @@ export class SalesService {
       quote.companyId
     );
 
-    const idNum = parseInt(quote.id.replace(/\D/g, ""), 10);
+    let orderId = Date.now();
     try {
-      if (!isNaN(idNum)) {
-        let soVersion = 0;
-        try {
-          const soRaw = await axelor.fetch("com.axelor.apps.sale.db.SaleOrder", idNum);
-          if (soRaw && soRaw.version !== undefined) soVersion = soRaw.version;
-        } catch {}
+      const soRes = await axelor.create("com.axelor.apps.sale.db.SaleOrder", {
+        saleOrderSeq: orderSeq,
+        orderDate: new Date().toISOString().slice(0, 10),
+        statusSelect: 2, // Confirmed Order
+        company: { id: quote.companyId || 13 },
+        currency: currencyObj,
+        clientPartner: { id: quote.partnerId, version: partnerVersion },
+        mainPartner: { id: quote.partnerId, version: partnerVersion },
+        exTaxTotal: quote.subtotal,
+        taxTotal: quote.taxAmount,
+        inTaxTotal: quote.total,
+        description: `Cotización Origen: ${quote.quoteSeq}`,
+      });
 
-        await axelor.update("com.axelor.apps.sale.db.SaleOrder", {
-          id: idNum,
-          version: soVersion,
-          statusSelect: 2, // Confirmed Order
-          saleOrderSeq: orderSeq,
-        });
+      if (soRes.data && soRes.data.length > 0 && soRes.data[0].id) {
+        orderId = Number(soRes.data[0].id);
+
+        if (quote.items && quote.items.length > 0) {
+          for (const it of quote.items) {
+            try {
+              await axelor.create("com.axelor.apps.sale.db.SaleOrderLine", {
+                saleOrder: { id: orderId },
+                product: { id: it.productId },
+                productName: it.productName || "Producto",
+                price: it.unitPrice,
+                qty: it.qty,
+                discount: it.discountPct || 0,
+                exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+                unit: { id: 1 },
+              });
+            } catch {}
+          }
+        }
       }
     } catch (err: any) {
-      console.warn("[SalesService] Error actualizando estado de cotización a pedido en Axelor:", err.message);
+      console.warn("[SalesService] Error creando pedido desde cotización:", err.message);
+    }
+
+    // Mark quote as WON/CONVERTED
+    const quoteIdNum = parseInt(quote.id.replace(/\D/g, ""), 10);
+    if (!isNaN(quoteIdNum)) {
+      try {
+        let quoteVer = 0;
+        const qRaw = await axelor.fetch("com.axelor.apps.sale.db.SaleOrder", quoteIdNum);
+        if (qRaw && qRaw.version !== undefined) quoteVer = qRaw.version;
+        await axelor.update("com.axelor.apps.sale.db.SaleOrder", {
+          id: quoteIdNum,
+          version: quoteVer,
+          statusSelect: 2, // Converted to Order
+        });
+      } catch {}
     }
 
     return {
-      id: quote.id,
+      id: String(orderId),
       orderSeq,
       companyId: quote.companyId,
       partnerId: quote.partnerId,
@@ -631,13 +807,6 @@ export class SalesService {
     const quote = await this.getQuote(quoteId);
     if (!quote) throw new Error("Cotización no encontrada en Axelor");
 
-    const invoiceSeq = await sequenceService.getNextSequence(
-      "FAC",
-      "com.axelor.apps.account.db.Invoice",
-      "invoiceId",
-      quote.companyId
-    );
-
     const currencyObj = await this.getCompanyCurrency(quote.companyId);
     let partnerVersion = 0;
     try {
@@ -647,7 +816,77 @@ export class SalesService {
       }
     } catch {}
 
-    const idNum = parseInt(quote.id.replace(/\D/g, ""), 10);
+    // 1. Create or ensure PED-... order record exists in Pedidos B2B
+    const orderSeq = await sequenceService.getNextSequence(
+      "PED",
+      "com.axelor.apps.sale.db.SaleOrder",
+      "saleOrderSeq",
+      quote.companyId
+    );
+
+    let orderId = Date.now();
+    try {
+      const soRes = await axelor.create("com.axelor.apps.sale.db.SaleOrder", {
+        saleOrderSeq: orderSeq,
+        orderDate: new Date().toISOString().slice(0, 10),
+        statusSelect: 3, // Invoiced
+        company: { id: quote.companyId || 13 },
+        currency: currencyObj,
+        clientPartner: { id: quote.partnerId, version: partnerVersion },
+        mainPartner: { id: quote.partnerId, version: partnerVersion },
+        exTaxTotal: quote.subtotal,
+        taxTotal: quote.taxAmount,
+        inTaxTotal: quote.total,
+        description: `Cotización Origen: ${quote.quoteSeq}`,
+      });
+
+      if (soRes.data && soRes.data.length > 0 && soRes.data[0].id) {
+        orderId = Number(soRes.data[0].id);
+
+        if (quote.items && quote.items.length > 0) {
+          for (const it of quote.items) {
+            try {
+              await axelor.create("com.axelor.apps.sale.db.SaleOrderLine", {
+                saleOrder: { id: orderId },
+                product: { id: it.productId },
+                productName: it.productName || "Producto",
+                price: it.unitPrice,
+                qty: it.qty,
+                discount: it.discountPct || 0,
+                exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+                unit: { id: 1 },
+              });
+            } catch {}
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn("[SalesService] Error creando pedido para cotización:", e.message);
+    }
+
+    // 2. Mark the quote as CONVERTED (statusSelect: 3)
+    const quoteIdNum = parseInt(quote.id.replace(/\D/g, ""), 10);
+    if (!isNaN(quoteIdNum)) {
+      try {
+        let quoteVer = 0;
+        const qRaw = await axelor.fetch("com.axelor.apps.sale.db.SaleOrder", quoteIdNum);
+        if (qRaw && qRaw.version !== undefined) quoteVer = qRaw.version;
+        await axelor.update("com.axelor.apps.sale.db.SaleOrder", {
+          id: quoteIdNum,
+          version: quoteVer,
+          statusSelect: 3, // Invoiced / Converted
+        });
+      } catch {}
+    }
+
+    // 3. Create Factura Fiscal FAC-... linked to BOTH the Order and Quote
+    const invoiceSeq = await sequenceService.getNextSequence(
+      "FAC",
+      "com.axelor.apps.account.db.Invoice",
+      "invoiceId",
+      quote.companyId
+    );
+
     let invoiceId = Date.now();
     try {
       const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", {
@@ -656,7 +895,7 @@ export class SalesService {
         statusSelect: 2, // 2: Validada / Por cobrar
         operationTypeSelect: 1, // 1: Cliente (CxC)
         operationSubTypeSelect: 1, // 1: Factura Estándar
-        saleOrder: !isNaN(idNum) ? { id: idNum } : undefined,
+        saleOrder: { id: orderId },
         partner: { id: quote.partnerId, version: partnerVersion },
         company: { id: quote.companyId || 13 },
         currency: currencyObj,
@@ -665,9 +904,10 @@ export class SalesService {
         inTaxTotal: quote.total,
         amountRemaining: quote.total,
         amountPaid: 0,
-        specificNotes: `Cotización Origen: ${quote.quoteSeq}`,
-        description: `Cotización Origen: ${quote.quoteSeq}`,
+        specificNotes: `Pedido Origen: ${orderSeq} (Cotización: ${quote.quoteSeq})`,
+        description: `Pedido Origen: ${orderSeq} | Cotización: ${quote.quoteSeq}`,
       });
+
       if (invRes.data && invRes.data.length > 0 && invRes.data[0].id) {
         invoiceId = Number(invRes.data[0].id);
 
@@ -688,28 +928,16 @@ export class SalesService {
           }
         }
       }
-
-      if (!isNaN(idNum)) {
-        let soVersion = 0;
-        try {
-          const soRaw = await axelor.fetch("com.axelor.apps.sale.db.SaleOrder", idNum);
-          if (soRaw && soRaw.version !== undefined) soVersion = soRaw.version;
-        } catch {}
-
-        await axelor.update("com.axelor.apps.sale.db.SaleOrder", {
-          id: idNum,
-          version: soVersion,
-          statusSelect: 3, // Invoiced
-        });
-      }
     } catch (e: any) {
       console.warn("[SalesService] Error facturando cotización en Axelor:", e.message);
     }
 
     return {
-      invoiceId,
-      invoiceSeq,
       quoteSeq: quote.quoteSeq,
+      orderSeq,
+      orderId,
+      invoiceSeq,
+      invoiceId,
       total: quote.total,
     };
   }

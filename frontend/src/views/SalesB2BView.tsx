@@ -310,6 +310,16 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
   const [isCustomerUnlocked, setIsCustomerUnlocked] = useState(false);
 
   // Quote Detail & Edit Modal State
+    // Direct Invoice (Factura Rápida B2B) Modal State
+  const [directInvoiceModalOpen, setDirectInvoiceModalOpen] = useState(false);
+  const [directInvoiceItems, setDirectInvoiceItems] = useState<any[]>([
+    { productId: 0, productName: "", productCode: "", qty: 1, unitPrice: 0, discountPct: 0 }
+  ]);
+  const [directInvoicePartnerId, setDirectInvoicePartnerId] = useState<number | string>(0);
+  const [directInvoiceNotes, setDirectInvoiceNotes] = useState("");
+  const [directInvoicePaymentTerms, setDirectInvoicePaymentTerms] = useState("30_DIAS_CREDITO");
+  const [submittingDirectInvoice, setSubmittingDirectInvoice] = useState(false);
+
   const [quoteDetailModalOpen, setQuoteDetailModalOpen] = useState(false);
   const [selectedQuote, setSelectedQuote] = useState<SaleQuoteRecord | null>(null);
   const [isEditingQuote, setIsEditingQuote] = useState(false);
@@ -640,6 +650,97 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
     }
   };
 
+    const handleOpenDirectInvoiceModal = () => {
+    const firstPartnerId = partners.length > 0 ? partners[0].id : 0;
+    setDirectInvoicePartnerId(selectedPartnerId || firstPartnerId);
+    setDirectInvoiceItems([
+      { productId: 0, productName: "", productCode: "", qty: 1, unitPrice: 0, discountPct: currentDiscountPct }
+    ]);
+    setDirectInvoiceNotes("");
+    setDirectInvoicePaymentTerms("30_DIAS_CREDITO");
+    setDirectInvoiceModalOpen(true);
+  };
+
+  const handleDirectInvoiceProductSelect = (index: number, prod: any) => {
+    if (!prod) return;
+    const partner = partners.find((p) => Number(p.id) === Number(directInvoicePartnerId));
+    const plCode = partner?.priceListCode || "PUBLIC";
+    const plObj = priceLists.find((pl) => pl.code === plCode);
+    const discPct = plObj ? plObj.discountPct : 0;
+
+    const updated = [...directInvoiceItems];
+    updated[index] = {
+      productId: prod.id,
+      productName: prod.name,
+      productCode: prod.code,
+      qty: updated[index]?.qty || 1,
+      unitPrice: Number(prod.salePrice || 0),
+      discountPct: discPct,
+    };
+    setDirectInvoiceItems(updated);
+  };
+
+  const handleAddDirectInvoiceItem = () => {
+    const partner = partners.find((p) => Number(p.id) === Number(directInvoicePartnerId));
+    const plCode = partner?.priceListCode || "PUBLIC";
+    const plObj = priceLists.find((pl) => pl.code === plCode);
+    const discPct = plObj ? plObj.discountPct : 0;
+
+    setDirectInvoiceItems([
+      ...directInvoiceItems,
+      { productId: 0, productName: "", productCode: "", qty: 1, unitPrice: 0, discountPct: discPct },
+    ]);
+  };
+
+  const handleRemoveDirectInvoiceItem = (index: number) => {
+    if (directInvoiceItems.length <= 1) {
+      setDirectInvoiceItems([{ productId: 0, productName: "", productCode: "", qty: 1, unitPrice: 0, discountPct: 0 }]);
+      return;
+    }
+    setDirectInvoiceItems(directInvoiceItems.filter((_, i) => i !== index));
+  };
+
+  const handleSubmitDirectInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeCompany) return;
+
+    const validLines = directInvoiceItems.filter((it) => it.productId > 0);
+    if (validLines.length === 0) {
+      alert("Debes agregar al menos un producto a facturar.");
+      return;
+    }
+
+    const partner = partners.find((p) => Number(p.id) === Number(directInvoicePartnerId));
+    if (!partner) {
+      alert("Debes seleccionar un cliente válido.");
+      return;
+    }
+
+    setSubmittingDirectInvoice(true);
+    const t0 = performance.now();
+    try {
+      const res = await salesApi.createDirectInvoice({
+        companyId: activeCompany.id,
+        partnerId: Number(partner.id),
+        partnerName: partner.name || partner.fullName,
+        items: validLines,
+        paymentTerms: directInvoicePaymentTerms,
+        notes: directInvoiceNotes,
+      });
+
+      const ttf = ((performance.now() - t0) / 1000).toFixed(2);
+      setLastConversionTime(ttf);
+      setDirectInvoiceModalOpen(false);
+      await loadData();
+      setActiveTab("INVOICES");
+      alert(`⚡ ¡Factura Rápida ${res.invoiceSeq} y Pedido ${res.orderSeq} emitidos en ${ttf}s con éxito!`);
+    } catch (err: any) {
+      alert(`Error al emitir factura rápida: ${err.message}`);
+    } finally {
+      setSubmittingDirectInvoice(false);
+    }
+  };
+
   const handleConvertToInvoice = async (quoteId: string) => {
     const t0 = performance.now();
     try {
@@ -648,7 +749,7 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
       setLastConversionTime(ttf);
       await loadData();
       setActiveTab("INVOICES");
-      alert(`¡Factura ${res.invoiceSeq || "FAC-2026-00001"} emitida con éxito en ${ttf}s desde Cotización!`);
+      alert(`⚡ ¡Ciclo B2B Completado en ${ttf}s! Se generaron Pedido ${res.orderSeq} y Factura ${res.invoiceSeq} vinculados a Cotización ${res.quoteSeq}.`);
     } catch (err: any) {
       alert(`Error al facturar cotización: ${err.message}`);
     }
@@ -932,6 +1033,17 @@ const handlePrintInvoiceDirect = (inv: SalesInvoiceRecord) => {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleOpenDirectInvoiceModal}
+            className="gap-1.5 text-xs font-semibold border-amber-300 dark:border-amber-600/50 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+            title="Emitir venta rápida y generar Pedido + Factura directamente"
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+            <span>⚡ Factura Rápida B2B</span>
+          </Button>
+
           {activeTab === "PRICE_LISTS" ? (
             <Button
               variant="primary"
@@ -3049,6 +3161,170 @@ const handlePrintInvoiceDirect = (inv: SalesInvoiceRecord) => {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* MODAL: EMITIR FACTURA RÁPIDA B2B (DIRECTA) */}
+      <Modal
+        isOpen={directInvoiceModalOpen}
+        onClose={() => setDirectInvoiceModalOpen(false)}
+        title="⚡ Factura Rápida B2B (Emisión Directa)"
+        maxWidth="2xl"
+      >
+        <form onSubmit={handleSubmitDirectInvoice} className="space-y-4">
+          <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/40 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2.5">
+            <Zap className="w-5 h-5 text-amber-500 shrink-0" />
+            <div>
+              <strong className="block font-semibold">Emisión Inmediata de Pedido y Factura</strong>
+              <span className="text-[11px] text-amber-700/90 dark:text-amber-300/90">
+                Esta acción genera el Pedido de Venta B2B y la Factura Fiscal en un solo paso, dejando registro en ambos grupos y enviando el saldo a Cuentas por Cobrar.
+              </span>
+            </div>
+          </div>
+
+          {/* Customer & Terms */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/10">
+            <div>
+              <Autocomplete
+                label="Cliente B2B / Receptor Fiscal"
+                placeholder="Selecciona o busca un cliente..."
+                searchPlaceholder="Escribe nombre, empresa o RFC..."
+                items={partnerItems}
+                value={directInvoicePartnerId}
+                onChange={(item) => {
+                  setDirectInvoicePartnerId(item.id);
+                  const p = partners.find((pt) => Number(pt.id) === Number(item.id));
+                  const plCode = p?.priceListCode || "PUBLIC";
+                  const plObj = priceLists.find((pl) => pl.code === plCode);
+                  const discPct = plObj ? plObj.discountPct : 0;
+                  setDirectInvoiceItems((prev) =>
+                    prev.map((line) => ({ ...line, discountPct: discPct }))
+                  );
+                }}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                Condiciones Comerciales de Pago
+              </label>
+              <select
+                value={directInvoicePaymentTerms}
+                onChange={(e) => setDirectInvoicePaymentTerms(e.target.value)}
+                className="w-full text-xs font-semibold rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#071C33] p-2 text-slate-900 dark:text-white"
+              >
+                <option value="CONTADO">Contado / Pago Inmediato</option>
+                <option value="30_DIAS_CREDITO">30 Días de Crédito Comercial</option>
+                <option value="15_DIAS_CREDITO">15 Días de Crédito Comercial</option>
+                <option value="60_DIAS_CREDITO">60 Días de Crédito Comercial</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Products & Lines */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                Conceptos & Artículos a Facturar
+              </label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddDirectInvoiceItem}
+                className="text-xs gap-1 py-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Agregar Producto</span>
+              </Button>
+            </div>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              {directInvoiceItems.map((item, idx) => (
+                <SearchableProductRow
+                  key={idx}
+                  index={idx}
+                  item={item}
+                  products={products}
+                  onSelect={handleDirectInvoiceProductSelect}
+                  onUpdateQty={(i, q) => {
+                    const u = [...directInvoiceItems];
+                    u[i].qty = q;
+                    setDirectInvoiceItems(u);
+                  }}
+                  onUpdateUnitPrice={(i, p) => {
+                    const u = [...directInvoiceItems];
+                    u[i].unitPrice = p;
+                    setDirectInvoiceItems(u);
+                  }}
+                  onUpdateDiscount={(i, d) => {
+                    const u = [...directInvoiceItems];
+                    u[i].discountPct = d;
+                    setDirectInvoiceItems(u);
+                  }}
+                  onRemove={handleRemoveDirectInvoiceItem}
+                  formatCurrency={formatCurrency}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Totals Summary */}
+          {(() => {
+            const vLines = directInvoiceItems.filter((it) => it.productId > 0);
+            const netSub = vLines.reduce(
+              (sum, it) => sum + (it.qty || 1) * (it.unitPrice || 0) * (1 - (it.discountPct || 0) / 100),
+              0
+            );
+            const vat = netSub * 0.16;
+            const grandTotal = netSub + vat;
+
+            return (
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={directInvoiceNotes}
+                    onChange={(e) => setDirectInvoiceNotes(e.target.value)}
+                    placeholder="Notas fiscales u observaciones (opcional)..."
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#071C33] text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div className="text-right font-mono space-y-0.5">
+                  <div className="text-slate-500 text-[11px]">
+                    Subtotal: {formatCurrency(netSub)} | IVA: {formatCurrency(vat)}
+                  </div>
+                  <div className="text-base font-bold text-slate-900 dark:text-white">
+                    Total: <span className="text-etiserv-blue">{formatCurrency(grandTotal)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-white/10">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDirectInvoiceModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              loading={submittingDirectInvoice}
+              glow
+              className="font-semibold gap-1.5"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-300" />
+              <span>⚡ Emitir Pedido & Factura Ahora</span>
+            </Button>
+          </div>
+        </form>
       </Modal>
 
 {/* Thermal Ticket & Factura Modal */}

@@ -190,6 +190,11 @@ export const salesApi = {
     return res.data.data;
   },
 
+  createDirectInvoice: async (payload: any): Promise<any> => {
+    const res = await api.post<{ success: boolean; data: any }>("/sales/direct-invoice", payload);
+    return res.data.data;
+  },
+
   assignPriceListToPartners: async (code: string, partnerIds: number[]): Promise<boolean> => {
     const res = await api.post<{ success: boolean }>(`/sales/price-lists/${code}/assign-partners`, { partnerIds });
     return res.data.success;

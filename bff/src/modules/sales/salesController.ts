@@ -272,3 +272,25 @@ salesRouter.get("/invoices/:id", async (req: AuthenticatedRequest, res: Response
     res.status(500).json({ success: false, error: err.message || "Error al obtener factura" });
   }
 });
+
+// POST /api/sales/direct-invoice (Factura Rápida B2B)
+salesRouter.post("/direct-invoice", async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  const start = performance.now();
+  try {
+    const payload = {
+      ...req.body,
+      companyId: req.body.companyId || req.user?.activeCompanyId || 13,
+    };
+    const result = await salesService.createDirectInvoice(payload);
+    const duration = Math.round(performance.now() - start);
+    res.set("Server-Timing", `axelor;dur=${duration}, total;dur=${duration}`);
+    res.json({
+      success: true,
+      message: `Factura Rápida ${result.invoiceSeq} y Pedido ${result.orderSeq} generados con éxito`,
+      data: result,
+      executionTimeMs: duration,
+    });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message || "Error al emitir factura rápida B2B" });
+  }
+});
