@@ -648,12 +648,27 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
     }
   };
 
-  const handleOpenQuoteDetail = (quote: SaleQuoteRecord, startInEdit = false) => {
+  const handleOpenQuoteDetail = async (quote: SaleQuoteRecord, startInEdit = false) => {
     setSelectedQuote(quote);
     setEditPartnerId(quote.partnerId || 0);
     setEditPriceListCode(quote.priceListCode || "PUBLIC");
     setEditQuoteNotes(quote.notes || "");
-    const mappedLines = (quote.items || []).map((it) => ({
+
+    let activeQuote = quote;
+    try {
+      const fullQuote = await salesApi.getQuote(quote.id);
+      if (fullQuote) {
+        activeQuote = fullQuote;
+        setSelectedQuote(fullQuote);
+        setEditPartnerId(fullQuote.partnerId || 0);
+        setEditPriceListCode(fullQuote.priceListCode || "PUBLIC");
+        setEditQuoteNotes(fullQuote.notes || "");
+      }
+    } catch (e) {
+      console.warn("No se pudo cargar detalle completo de cotización:", e);
+    }
+
+    const mappedLines = (activeQuote.items || []).map((it) => ({
       productId: it.productId,
       productName: it.productName,
       productCode: it.productCode,
@@ -662,7 +677,7 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
       discountPct: it.discountPct || 0,
     }));
     setEditQuoteLines(mappedLines.length > 0 ? mappedLines : [{ productId: 0, productName: "", productCode: "", qty: 1, unitPrice: 0, discountPct: 0 }]);
-    setIsEditingQuote(startInEdit && (quote.status === "DRAFT" || !quote.status));
+    setIsEditingQuote(startInEdit && (activeQuote.status === "DRAFT" || !activeQuote.status));
     setQuoteDetailModalOpen(true);
   };
 
@@ -689,7 +704,7 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
 
       setSelectedQuote(updated);
       setIsEditingQuote(false);
-      loadData();
+      await loadData();
       alert("¡Cotización actualizada exitosamente!");
     } catch (err: any) {
       alert(`Error al guardar cambios: ${err.message}`);
@@ -707,8 +722,7 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
       await salesApi.deleteQuote(quoteId);
       setQuoteDetailModalOpen(false);
       setSelectedQuote(null);
-      loadData();
-      alert("Cotización en borrador eliminada.");
+      await loadData();
     } catch (err: any) {
       alert(`Error al eliminar cotización: ${err.message}`);
     } finally {
@@ -716,8 +730,16 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
     }
   };
 
-  const handleOpenOrderDetail = (order: B2BOrderRecord) => {
+  const handleOpenOrderDetail = async (order: B2BOrderRecord) => {
     setSelectedB2BOrder(order);
+    try {
+      const fullOrder = await salesApi.getOrder(order.id);
+      if (fullOrder) {
+        setSelectedB2BOrder(fullOrder);
+      }
+    } catch (e) {
+      console.warn("No se pudo cargar detalle completo de pedido:", e);
+    }
     setB2bOrderDetailModalOpen(true);
   };
 

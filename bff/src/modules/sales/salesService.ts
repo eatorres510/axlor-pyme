@@ -230,7 +230,22 @@ export class SalesService {
       }
 
       if (so) {
-        const lines = Array.isArray(so.saleOrderLineList) ? so.saleOrderLineList : [];
+        let lines: any[] = [];
+        try {
+          const linesRes = await axelor.search("com.axelor.apps.sale.db.SaleOrderLine", {
+            data: { _domain: `self.saleOrder.id = ${so.id}` },
+            fields: ["id", "product", "productName", "qty", "price", "discount", "exTaxTotal", "inTaxTotal", "unit"],
+            limit: 50,
+          });
+          if (linesRes.data && Array.isArray(linesRes.data) && linesRes.data.length > 0) {
+            lines = linesRes.data;
+          }
+        } catch {}
+
+        if (lines.length === 0 && Array.isArray(so.saleOrderLineList)) {
+          lines = so.saleOrderLineList;
+        }
+
         return {
           id: String(so.id),
           quoteSeq: so.saleOrderSeq || `COT-2026-${String(so.id).padStart(5, "0")}`,
@@ -391,7 +406,22 @@ export class SalesService {
       }
 
       if (so) {
-        const lines = Array.isArray(so.saleOrderLineList) ? so.saleOrderLineList : [];
+        let lines: any[] = [];
+        try {
+          const linesRes = await axelor.search("com.axelor.apps.sale.db.SaleOrderLine", {
+            data: { _domain: `self.saleOrder.id = ${so.id}` },
+            fields: ["id", "product", "productName", "qty", "price", "discount", "exTaxTotal", "inTaxTotal", "unit"],
+            limit: 50,
+          });
+          if (linesRes.data && Array.isArray(linesRes.data) && linesRes.data.length > 0) {
+            lines = linesRes.data;
+          }
+        } catch {}
+
+        if (lines.length === 0 && Array.isArray(so.saleOrderLineList)) {
+          lines = so.saleOrderLineList;
+        }
+
         return {
           id: String(so.id),
           orderSeq: so.saleOrderSeq || orderId,
