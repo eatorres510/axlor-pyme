@@ -87,8 +87,32 @@ export class SalesService {
       });
 
       const list = Array.isArray(res.data) ? res.data : [];
+      const soIds = list.map((so: any) => so.id).filter(Boolean);
+
+      let allLinesMap: Record<number, any[]> = {};
+      if (soIds.length > 0) {
+        try {
+          const linesRes = await axelor.search("com.axelor.apps.sale.db.SaleOrderLine", {
+            data: { _domain: `self.saleOrder.id in (${soIds.join(",")})` },
+            fields: ["id", "saleOrder", "product", "productName", "qty", "price", "discount", "exTaxTotal", "inTaxTotal", "unit"],
+            limit: 500,
+          });
+          if (linesRes.data && Array.isArray(linesRes.data)) {
+            for (const line of linesRes.data) {
+              const soId = line.saleOrder?.id;
+              if (soId) {
+                if (!allLinesMap[soId]) allLinesMap[soId] = [];
+                allLinesMap[soId].push(line);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[SalesService] Error cargando líneas en lote para cotizaciones:", e);
+        }
+      }
+
       return list.map((so: any) => {
-        const lines = Array.isArray(so.saleOrderLineList) ? so.saleOrderLineList : [];
+        const lines = allLinesMap[so.id] || (Array.isArray(so.saleOrderLineList) ? so.saleOrderLineList : []);
         return {
           id: String(so.id),
           quoteSeq: so.saleOrderSeq || `COT-2026-${String(so.id).padStart(5, "0")}`,
@@ -357,8 +381,32 @@ export class SalesService {
       });
 
       const list = Array.isArray(res.data) ? res.data : [];
+      const soIds = list.map((so: any) => so.id).filter(Boolean);
+
+      let allLinesMap: Record<number, any[]> = {};
+      if (soIds.length > 0) {
+        try {
+          const linesRes = await axelor.search("com.axelor.apps.sale.db.SaleOrderLine", {
+            data: { _domain: `self.saleOrder.id in (${soIds.join(",")})` },
+            fields: ["id", "saleOrder", "product", "productName", "qty", "price", "discount", "exTaxTotal", "inTaxTotal", "unit"],
+            limit: 500,
+          });
+          if (linesRes.data && Array.isArray(linesRes.data)) {
+            for (const line of linesRes.data) {
+              const soId = line.saleOrder?.id;
+              if (soId) {
+                if (!allLinesMap[soId]) allLinesMap[soId] = [];
+                allLinesMap[soId].push(line);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[SalesService] Error cargando líneas en lote para pedidos:", e);
+        }
+      }
+
       return list.map((so: any) => {
-        const lines = Array.isArray(so.saleOrderLineList) ? so.saleOrderLineList : [];
+        const lines = allLinesMap[so.id] || (Array.isArray(so.saleOrderLineList) ? so.saleOrderLineList : []);
         return {
           id: String(so.id),
           orderSeq: so.saleOrderSeq || `PED-2026-${String(so.id).padStart(5, "0")}`,

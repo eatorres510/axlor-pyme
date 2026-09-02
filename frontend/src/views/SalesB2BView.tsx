@@ -668,14 +668,18 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
       console.warn("No se pudo cargar detalle completo de cotización:", e);
     }
 
-    const mappedLines = (activeQuote.items || []).map((it) => ({
-      productId: it.productId,
-      productName: it.productName,
-      productCode: it.productCode,
-      qty: it.qty || 1,
-      unitPrice: it.unitPrice || 0,
-      discountPct: it.discountPct || 0,
-    }));
+    const mappedLines = (activeQuote.items || []).map((it) => {
+      const prod = products.find((p) => p.id === it.productId);
+      const safePrice = Number(it.unitPrice) > 0 ? Number(it.unitPrice) : Number(prod?.salePrice || 0);
+      return {
+        productId: it.productId,
+        productName: it.productName || prod?.name || "Producto",
+        productCode: it.productCode || prod?.code || "SKU",
+        qty: Number(it.qty) || 1,
+        unitPrice: safePrice,
+        discountPct: Number(it.discountPct) || 0,
+      };
+    });
     setEditQuoteLines(mappedLines.length > 0 ? mappedLines : [{ productId: 0, productName: "", productCode: "", qty: 1, unitPrice: 0, discountPct: 0 }]);
     setIsEditingQuote(startInEdit && (activeQuote.status === "DRAFT" || !activeQuote.status));
     setQuoteDetailModalOpen(true);
