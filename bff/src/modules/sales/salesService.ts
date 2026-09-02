@@ -697,6 +697,13 @@ export class SalesService {
           });
         } catch {}
       }
+
+      // 3. Atomic Stock Discharge (StockMove Outflow: typeSelect: 2, statusSelect: 2)
+      await this.dischargeStockForSale({
+        companyId: payload.companyId || 13,
+        originDoc: `Factura Rápida ${invoiceSeq} (Pedido ${orderSeq})`,
+        items: payload.items || [],
+      });
     } else {
       throw new Error("No se pudo crear la Factura en Axelor: " + JSON.stringify(invRes));
     }
@@ -936,6 +943,13 @@ export class SalesService {
           } catch {}
         }
       }
+
+      // 4. Atomic Stock Discharge (StockMove Outflow: typeSelect: 2, statusSelect: 2)
+      await this.dischargeStockForSale({
+        companyId: quote.companyId || 13,
+        originDoc: `Factura Fiscal ${invoiceSeq} (Cotización ${quote.quoteSeq})`,
+        items: quote.items || [],
+      });
     } else {
       throw new Error("No se pudo crear la Factura en Axelor: " + JSON.stringify(invRes));
     }
@@ -1010,6 +1024,13 @@ export class SalesService {
             } catch {}
           }
         }
+
+        // Atomic Stock Discharge (StockMove Outflow: typeSelect: 2, statusSelect: 2)
+        await this.dischargeStockForSale({
+          companyId: order.companyId || 13,
+          originDoc: `Factura Fiscal ${invoiceSeq} (Pedido ${order.orderSeq})`,
+          items: order.items || [],
+        });
       }
 
       if (!isNaN(idNum)) {
@@ -1035,6 +1056,54 @@ export class SalesService {
       orderSeq: order.orderSeq,
       total: order.total,
     };
+  }
+
+  private async dischargeStockForSale(params: {
+    companyId: number;
+    originDoc: string;
+    items: Array<{ productId: number; productName?: string; qty: number; unitPrice?: number }>;
+    warehouseId?: number;
+  }): Promise<void> {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const whId = params.warehouseId || 1; // Almacén Principal
+      const validItems = (params.items || []).filter((it) => it.productId > 0 && (it.qty || 1) > 0);
+      if (validItems.length === 0) return;
+
+      const moveLines = validItems.map((it) => ({
+        product: { id: it.productId },
+        productName: it.productName || "Producto",
+        qty: it.qty || 1,
+        unitPrice: it.unitPrice || 0,
+        fromStockLocation: { id: whId },
+        toStockLocation: { id: whId },
+      }));
+
+      const smRes = await axelor.create("com.axelor.apps.stock.db.StockMove", {
+        typeSelect: 2, // Outflow (Salida de Cliente / Venta)
+        statusSelect: 2, // Realized (Contabilizado / Post)
+        company: { id: params.companyId || 13 },
+        fromStockLocation: { id: whId },
+        toStockLocation: { id: whId },
+        estimatedDate: today,
+        realDate: today,
+        origin: params.originDoc,
+      });
+
+      const smId = smRes.data?.[0]?.id;
+      if (smId) {
+        for (const ml of moveLines) {
+          try {
+            await axelor.create("com.axelor.apps.stock.db.StockMoveLine", {
+              stockMove: { id: smId },
+              ...ml,
+            });
+          } catch {}
+        }
+      }
+    } catch (err: any) {
+      console.warn("[SalesService] Error descargando stock de venta en Axelor:", err.message);
+    }
   }
 
   // ==========================================

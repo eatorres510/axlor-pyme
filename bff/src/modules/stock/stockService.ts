@@ -411,6 +411,92 @@ export class StockService {
       timestamp: new Date().toISOString(),
     };
   }
+
+  // ==========================================
+  // KARDEX DE MOVIMIENTOS HISTÓRICOS
+  // ==========================================
+
+  public async listKardexMovements(params: {
+    companyId: number;
+    warehouseId?: number;
+    productId?: number;
+  }): Promise<any[]> {
+    try {
+      let domain = "self.stockMove.statusSelect = 2";
+      if (params.warehouseId && params.warehouseId > 0) {
+        domain += ` and (self.fromStockLocation.id = ${params.warehouseId} or self.toStockLocation.id = ${params.warehouseId})`;
+      }
+      if (params.productId && params.productId > 0) {
+        domain += ` and self.product.id = ${params.productId}`;
+      }
+
+      const movesRes = await axelor.search("com.axelor.apps.stock.db.StockMoveLine", {
+        data: { _domain: domain },
+        fields: [
+          "id",
+          "product",
+          "productName",
+          "qty",
+          "unitPrice",
+          "fromStockLocation",
+          "toStockLocation",
+          "stockMove.typeSelect",
+          "stockMove.origin",
+          "stockMove.realDate",
+          "stockMove.createdOn",
+          "stockMove.notes",
+        ],
+        sortBy: ["-id", "-stockMove.realDate"],
+        limit: 300,
+      });
+
+      const list = Array.isArray(movesRes.data) ? movesRes.data : [];
+      return list.map((m: any) => {
+        const typeSelect = (m as any)["stockMove.typeSelect"] ?? m.stockMove?.typeSelect ?? 2;
+        const originStr = (m as any)["stockMove.origin"] ?? m.stockMove?.origin ?? "Movimiento de Inventario";
+        const dateStr = (m as any)["stockMove.realDate"] ?? (m as any)["stockMove.createdOn"] ?? new Date().toISOString().slice(0, 10);
+        const qtyNum = Number(m.qty || 0);
+
+        let typeLabel = "Salida por Venta";
+        let typeCode = "OUTFLOW";
+        if (typeSelect === 1) {
+          typeLabel = "Entrada por Compra / Ajuste";
+          typeCode = "INFLOW";
+        } else if (typeSelect === 2) {
+          if (originStr.includes("POS")) {
+            typeLabel = "Salida por Venta POS";
+            typeCode = "POS_SALE";
+          } else {
+            typeLabel = "Salida por Factura B2B";
+            typeCode = "B2B_SALE";
+          }
+        } else if (typeSelect === 3) {
+          typeLabel = "Traslado entre Bodegas";
+          typeCode = "TRANSFER";
+        }
+
+        return {
+          id: String(m.id),
+          date: String(dateStr).slice(0, 10),
+          productId: m.product?.id || 1,
+          productName: m.productName || m.product?.name || m.product?.fullName || "Producto",
+          productCode: m.product?.code || `SKU-${m.product?.id || ""}`,
+          qty: qtyNum,
+          unitPrice: Number(m.unitPrice || 0),
+          fromWarehouseName: m.fromStockLocation?.name || "Almacén Principal",
+          toWarehouseName: m.toStockLocation?.name || "Almacén Principal",
+          typeSelect,
+          typeLabel,
+          typeCode,
+          origin: originStr,
+          status: "CONTABILIZADO",
+        };
+      });
+    } catch (err: any) {
+      console.warn("[StockService] Error consultando Kardex en Axelor:", err.message);
+      return [];
+    }
+  }
 }
 
 export const stockService = new StockService();

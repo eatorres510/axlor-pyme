@@ -496,7 +496,13 @@ export const InventoryView: React.FC = () => {
   const [filterLowStock, setFilterLowStock] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<number | "ALL">("ALL");
-  const [activeTab, setActiveTab] = useState<"ITEMS" | "WAREHOUSES" | "TRANSFERS">("ITEMS");
+  const [activeTab, setActiveTab] = useState<"ITEMS" | "WAREHOUSES" | "TRANSFERS" | "KARDEX">("ITEMS");
+  const [kardexMovements, setKardexMovements] = useState<any[]>([]);
+  const [kardexLoading, setKardexLoading] = useState(false);
+  const [kardexSearch, setKardexSearch] = useState("");
+  const [kardexTypeFilter, setKardexTypeFilter] = useState("ALL");
+  const [kardexPage, setKardexPage] = useState(1);
+  const [kardexPageSize, setKardexPageSize] = useState(25);
 
   // Multi-Product Internal Transfer Modal State
   const [transferModalOpen, setTransferModalOpen] = useState(false);
@@ -583,11 +589,14 @@ export const InventoryView: React.FC = () => {
     try {
       setLoading(true);
       const whId = selectedWarehouseId === "ALL" ? undefined : selectedWarehouseId;
-      const [levelsRes, locs, prods] = await Promise.all([
+      const [levelsRes, locs, prods, kardexRes] = await Promise.all([
         stockApi.getStockLevels(activeCompany.id, filterLowStock, whId),
         stockApi.getLocations(activeCompany.id),
         catalogApi.listProducts(activeCompany.id),
+        stockApi.getKardexMovements(activeCompany.id, whId),
       ]);
+
+      setKardexMovements(kardexRes || []);
 
       const items = levelsRes?.data || [];
       const summary = levelsRes?.summary || null;
@@ -1098,6 +1107,18 @@ export const InventoryView: React.FC = () => {
           >
             <ArrowLeftRight className="w-3.5 h-3.5" />
             <span>Historial de Traslados</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("KARDEX")}
+            className={`px-3 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1.5 ${
+              activeTab === "KARDEX"
+                ? "bg-white dark:bg-[#06172A] text-etiserv-blue shadow-xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>📋 Kardex de Movimientos ({kardexMovements.length})</span>
           </button>
         </div>
       </div>

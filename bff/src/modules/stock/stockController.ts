@@ -86,3 +86,17 @@ stockRouter.post("/adjustments", async (req: Request, res: Response): Promise<vo
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// GET /api/stock/kardex
+stockRouter.get("/kardex", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : 13;
+    const warehouseId = req.query.warehouseId ? parseInt(req.query.warehouseId as string, 10) : undefined;
+    const productId = req.query.productId ? parseInt(req.query.productId as string, 10) : undefined;
+
+    const result = await stockService.listKardexMovements({ companyId, warehouseId, productId });
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
