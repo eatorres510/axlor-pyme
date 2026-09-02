@@ -610,10 +610,11 @@ export class SalesService {
       payload.companyId || 13
     );
 
-    let orderId = Date.now();
+    let orderId = 0;
     try {
       const soRes = await axelor.create("com.axelor.apps.sale.db.SaleOrder", {
         saleOrderSeq: orderSeq,
+        creationDate: today,
         orderDate: today,
         statusSelect: 3, // Invoiced
         company: { id: payload.companyId || 13 },
@@ -656,47 +657,48 @@ export class SalesService {
       payload.companyId || 13
     );
 
-    let invoiceId = Date.now();
-    try {
-      const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", {
-        invoiceId: invoiceSeq,
-        invoiceDate: today,
-        statusSelect: 2, // 2: Validada / Por cobrar
-        operationTypeSelect: 1, // 1: Cliente (CxC)
-        operationSubTypeSelect: 1, // 1: Factura Estándar
-        saleOrder: { id: orderId },
-        partner: { id: payload.partnerId, version: partnerVersion },
-        company: { id: payload.companyId || 13 },
-        currency: currencyObj,
-        exTaxTotal: subtotal,
-        taxTotal: taxAmount,
-        inTaxTotal: total,
-        amountRemaining: total,
-        amountPaid: 0,
-        specificNotes: `Factura Rápida B2B (Pedido: ${orderSeq})`,
-        description: `Factura Rápida B2B (Pedido: ${orderSeq})`,
-      });
+    let invoiceId = 0;
+    const invPayload: any = {
+      invoiceId: invoiceSeq,
+      invoiceDate: today,
+      statusSelect: 2, // 2: Validada / Por cobrar
+      operationTypeSelect: 1, // 1: Cliente (CxC)
+      operationSubTypeSelect: 1, // 1: Factura Estándar
+      partner: { id: payload.partnerId, version: partnerVersion },
+      company: { id: payload.companyId || 13 },
+      currency: currencyObj,
+      exTaxTotal: subtotal,
+      taxTotal: taxAmount,
+      inTaxTotal: total,
+      amountRemaining: total,
+      amountPaid: 0,
+      specificNotes: `Factura Rápida B2B (Pedido: ${orderSeq})`,
+      description: `Factura Rápida B2B (Pedido: ${orderSeq})`,
+    };
+    if (orderId > 0 && orderId < 1000000000) {
+      invPayload.saleOrder = { id: orderId };
+    }
 
-      if (invRes.data && invRes.data.length > 0 && invRes.data[0].id) {
-        invoiceId = Number(invRes.data[0].id);
+    const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", invPayload);
+    if (invRes.data && invRes.data.length > 0 && invRes.data[0].id) {
+      invoiceId = Number(invRes.data[0].id);
 
-        for (const it of payload.items) {
-          try {
-            await axelor.create("com.axelor.apps.account.db.InvoiceLine", {
-              invoice: { id: invoiceId },
-              product: { id: it.productId },
-              productName: it.productName || "Producto",
-              price: it.unitPrice,
-              qty: it.qty,
-              discount: it.discountPct || 0,
-              exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
-              unit: { id: 1 },
-            });
-          } catch {}
-        }
+      for (const it of payload.items) {
+        try {
+          await axelor.create("com.axelor.apps.account.db.InvoiceLine", {
+            invoice: { id: invoiceId },
+            product: { id: it.productId },
+            productName: it.productName || "Producto",
+            price: it.unitPrice,
+            qty: it.qty,
+            discount: it.discountPct || 0,
+            exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+            unit: { id: 1 },
+          });
+        } catch {}
       }
-    } catch (e: any) {
-      console.warn("[SalesService] Error creando factura rápida en Axelor:", e.message);
+    } else {
+      throw new Error("No se pudo crear la Factura en Axelor: " + JSON.stringify(invRes));
     }
 
     return {
@@ -729,11 +731,13 @@ export class SalesService {
       quote.companyId
     );
 
-    let orderId = Date.now();
+    const today = new Date().toISOString().slice(0, 10);
+    let orderId = 0;
     try {
       const soRes = await axelor.create("com.axelor.apps.sale.db.SaleOrder", {
         saleOrderSeq: orderSeq,
-        orderDate: new Date().toISOString().slice(0, 10),
+        creationDate: today,
+        orderDate: today,
         statusSelect: 2, // Confirmed Order
         company: { id: quote.companyId || 13 },
         currency: currencyObj,
@@ -791,7 +795,7 @@ export class SalesService {
       partnerId: quote.partnerId,
       partnerName: quote.partnerName,
       quoteSeq: quote.quoteSeq,
-      date: new Date().toISOString().slice(0, 10),
+      date: today,
       status: "CONFIRMED",
       items: quote.items,
       subtotal: quote.subtotal,
@@ -816,6 +820,8 @@ export class SalesService {
       }
     } catch {}
 
+    const today = new Date().toISOString().slice(0, 10);
+
     // 1. Create or ensure PED-... order record exists in Pedidos B2B
     const orderSeq = await sequenceService.getNextSequence(
       "PED",
@@ -824,11 +830,12 @@ export class SalesService {
       quote.companyId
     );
 
-    let orderId = Date.now();
+    let orderId = 0;
     try {
       const soRes = await axelor.create("com.axelor.apps.sale.db.SaleOrder", {
         saleOrderSeq: orderSeq,
-        orderDate: new Date().toISOString().slice(0, 10),
+        creationDate: today,
+        orderDate: today,
         statusSelect: 3, // Invoiced
         company: { id: quote.companyId || 13 },
         currency: currencyObj,
@@ -887,49 +894,50 @@ export class SalesService {
       quote.companyId
     );
 
-    let invoiceId = Date.now();
-    try {
-      const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", {
-        invoiceId: invoiceSeq,
-        invoiceDate: new Date().toISOString().slice(0, 10),
-        statusSelect: 2, // 2: Validada / Por cobrar
-        operationTypeSelect: 1, // 1: Cliente (CxC)
-        operationSubTypeSelect: 1, // 1: Factura Estándar
-        saleOrder: { id: orderId },
-        partner: { id: quote.partnerId, version: partnerVersion },
-        company: { id: quote.companyId || 13 },
-        currency: currencyObj,
-        exTaxTotal: quote.subtotal,
-        taxTotal: quote.taxAmount,
-        inTaxTotal: quote.total,
-        amountRemaining: quote.total,
-        amountPaid: 0,
-        specificNotes: `Pedido Origen: ${orderSeq} (Cotización: ${quote.quoteSeq})`,
-        description: `Pedido Origen: ${orderSeq} | Cotización: ${quote.quoteSeq}`,
-      });
+    let invoiceId = 0;
+    const invPayload: any = {
+      invoiceId: invoiceSeq,
+      invoiceDate: today,
+      statusSelect: 2, // 2: Validada / Por cobrar
+      operationTypeSelect: 1, // 1: Cliente (CxC)
+      operationSubTypeSelect: 1, // 1: Factura Estándar
+      partner: { id: quote.partnerId, version: partnerVersion },
+      company: { id: quote.companyId || 13 },
+      currency: currencyObj,
+      exTaxTotal: quote.subtotal,
+      taxTotal: quote.taxAmount,
+      inTaxTotal: quote.total,
+      amountRemaining: quote.total,
+      amountPaid: 0,
+      specificNotes: `Pedido Origen: ${orderSeq} (Cotización: ${quote.quoteSeq})`,
+      description: `Pedido Origen: ${orderSeq} | Cotización: ${quote.quoteSeq}`,
+    };
+    if (orderId > 0 && orderId < 1000000000) {
+      invPayload.saleOrder = { id: orderId };
+    }
 
-      if (invRes.data && invRes.data.length > 0 && invRes.data[0].id) {
-        invoiceId = Number(invRes.data[0].id);
+    const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", invPayload);
+    if (invRes.data && invRes.data.length > 0 && invRes.data[0].id) {
+      invoiceId = Number(invRes.data[0].id);
 
-        if (quote.items && quote.items.length > 0) {
-          for (const it of quote.items) {
-            try {
-              await axelor.create("com.axelor.apps.account.db.InvoiceLine", {
-                invoice: { id: invoiceId },
-                product: { id: it.productId },
-                productName: it.productName || "Producto",
-                price: it.unitPrice,
-                qty: it.qty,
-                discount: it.discountPct || 0,
-                exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
-                unit: { id: 1 },
-              });
-            } catch {}
-          }
+      if (quote.items && quote.items.length > 0) {
+        for (const it of quote.items) {
+          try {
+            await axelor.create("com.axelor.apps.account.db.InvoiceLine", {
+              invoice: { id: invoiceId },
+              product: { id: it.productId },
+              productName: it.productName || "Producto",
+              price: it.unitPrice,
+              qty: it.qty,
+              discount: it.discountPct || 0,
+              exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+              unit: { id: 1 },
+            });
+          } catch {}
         }
       }
-    } catch (e: any) {
-      console.warn("[SalesService] Error facturando cotización en Axelor:", e.message);
+    } else {
+      throw new Error("No se pudo crear la Factura en Axelor: " + JSON.stringify(invRes));
     }
 
     return {
