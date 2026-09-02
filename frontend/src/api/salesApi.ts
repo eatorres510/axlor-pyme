@@ -52,6 +52,36 @@ export interface PriceList {
   description: string;
 }
 
+export interface InvoiceTrackingInfo {
+  originType: "DIRECT_SALE" | "B2B_FLOW";
+  isDirectSale: boolean;
+  quote?: {
+    id: string;
+    quoteSeq: string;
+    date: string;
+    total: number;
+    status: string;
+  } | null;
+  order?: {
+    id: string;
+    orderSeq: string;
+    date: string;
+    total: number;
+    paymentTerms?: string;
+    status: string;
+  } | null;
+  invoice: {
+    id: string;
+    invoiceSeq: string;
+    date: string;
+    dueDate: string;
+    total: number;
+    amountPaid: number;
+    amountRemaining: number;
+    status: string;
+  };
+}
+
 export interface SalesInvoiceRecord {
   id: string;
   invoiceSeq: string;
@@ -68,6 +98,10 @@ export interface SalesInvoiceRecord {
   amountPaid: number;
   amountRemaining: number;
   notes?: string;
+  originType?: "DIRECT_SALE" | "B2B_FLOW";
+  originSummary?: string;
+  originBadgeType?: "DIRECT" | "QUOTE" | "ORDER";
+  tracking?: InvoiceTrackingInfo;
 }
 
 export const salesApi = {
@@ -143,6 +177,11 @@ export const salesApi = {
 
   listInvoices: async (companyId: number): Promise<SalesInvoiceRecord[]> => {
     const res = await api.get<{ success: boolean; data: SalesInvoiceRecord[] }>(`/sales/invoices?companyId=${companyId}`);
+    return res.data.data;
+  },
+
+  getInvoice: async (invoiceId: string): Promise<SalesInvoiceRecord> => {
+    const res = await api.get<{ success: boolean; data: SalesInvoiceRecord }>(`/sales/invoices/${invoiceId}`);
     return res.data.data;
   },
 

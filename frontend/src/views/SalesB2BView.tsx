@@ -668,7 +668,20 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
     }
   };
 
-  const handlePrintInvoiceDirect = (inv: SalesInvoiceRecord) => {
+    const handleOpenInvoiceDetail = async (inv: SalesInvoiceRecord) => {
+    setSelectedInvoice(inv);
+    setInvoiceDetailModalOpen(true);
+    try {
+      const fullInv = await salesApi.getInvoice(inv.id);
+      if (fullInv) {
+        setSelectedInvoice(fullInv);
+      }
+    } catch (e) {
+      console.warn("No se pudo cargar detalle completo de factura:", e);
+    }
+  };
+
+const handlePrintInvoiceDirect = (inv: SalesInvoiceRecord) => {
     if (!activeCompany) return;
     setTicketData({
       ticketNumber: inv.invoiceSeq,
@@ -1341,8 +1354,8 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
                 <tr>
                   <th className="py-2.5 px-5">Folio Factura</th>
                   <th className="py-2.5 px-5">Cliente B2B</th>
+                  <th className="py-2.5 px-5">Origen / Trazabilidad</th>
                   <th className="py-2.5 px-5">Fecha Emisión</th>
-                  <th className="py-2.5 px-5">Vencimiento</th>
                   <th className="py-2.5 px-5 text-right">Total Factura</th>
                   <th className="py-2.5 px-5 text-right">Saldo Pendiente</th>
                   <th className="py-2.5 px-5 text-center">Estado</th>
@@ -1365,22 +1378,46 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
                     .map((inv) => (
                       <tr
                         key={inv.id}
-                        className="hover:bg-slate-50/70 dark:hover:bg-white/[0.04] transition-colors group"
+                        onClick={() => handleOpenInvoiceDetail(inv)}
+                        className="hover:bg-slate-50/70 dark:hover:bg-white/[0.04] transition-colors cursor-pointer group"
                       >
                         <td className="py-3 px-5">
-                          <span className="font-mono text-xs font-bold text-etiserv-blue bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200/60 dark:border-blue-900/40 flex items-center gap-1 w-fit">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenInvoiceDetail(inv);
+                            }}
+                            className="font-mono text-xs font-bold text-etiserv-blue bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200/60 dark:border-blue-900/40 hover:underline flex items-center gap-1 w-fit"
+                            title="Clic para ver detalle y trazabilidad comercial"
+                          >
                             <Receipt className="w-3 h-3 inline text-etiserv-blue" />
                             <span>{inv.invoiceSeq}</span>
-                          </span>
+                          </button>
                         </td>
                         <td className="py-3 px-5 font-semibold text-slate-900 dark:text-white">
                           {inv.partnerName}
                         </td>
+                        <td className="py-3 px-5">
+                          {inv.originBadgeType === "QUOTE" ? (
+                            <span className="inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-etiserv-blue bg-blue-50 dark:bg-blue-950/50 px-2 py-0.5 rounded border border-blue-200/60 dark:border-blue-900/40">
+                              <FileText className="w-3 h-3 text-etiserv-blue" />
+                              <span>{inv.originSummary || "Cotización"}</span>
+                            </span>
+                          ) : inv.originBadgeType === "ORDER" ? (
+                            <span className="inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-2 py-0.5 rounded border border-purple-200/60 dark:border-purple-900/40">
+                              <ShoppingBag className="w-3 h-3 text-purple-600" />
+                              <span>{inv.originSummary || "Pedido"}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 dark:bg-white/5 px-2 py-0.5 rounded">
+                              <Zap className="w-3 h-3 text-amber-500" />
+                              <span>Venta Directa</span>
+                            </span>
+                          )}
+                        </td>
                         <td className="py-3 px-5 font-mono text-slate-600 dark:text-slate-300">
                           {inv.date}
-                        </td>
-                        <td className="py-3 px-5 font-mono text-slate-500">
-                          {inv.dueDate}
                         </td>
                         <td className="py-3 px-5 text-right font-bold tabular-nums text-slate-900 dark:text-white font-mono">
                           {formatCurrency(inv.total || 0)}
@@ -1398,8 +1435,18 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
                             {inv.amountRemaining <= 0 ? "Pagada" : "Por Cobrar"}
                           </Badge>
                         </td>
-                        <td className="py-3 px-5 text-right">
+                        <td className="py-3 px-5 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleOpenInvoiceDetail(inv)}
+                              className="text-[11px] py-1 px-2.5 gap-1 text-slate-600 dark:text-slate-300"
+                              title="Ver detalle y trazabilidad completa"
+                            >
+                              <Eye className="w-3 h-3 text-slate-400" />
+                              <span>Ver</span>
+                            </Button>
                             <Button
                               size="sm"
                               variant="outline"
@@ -2696,7 +2743,315 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
           </div>
         )}
       </Modal>
-      {/* Thermal Ticket & Factura Modal */}
+            {/* MODAL: VER DETALLE & TRAZABILIDAD DE FACTURA FISCAL */}
+      <Modal
+        isOpen={invoiceDetailModalOpen}
+        onClose={() => {
+          setInvoiceDetailModalOpen(false);
+          setSelectedInvoice(null);
+        }}
+        title={
+          selectedInvoice
+            ? `🧾 Factura Fiscal & Trazabilidad: ${selectedInvoice.invoiceSeq}`
+            : "Detalle de Factura"
+        }
+        maxWidth="2xl"
+      >
+        {selectedInvoice && (
+          <div className="space-y-4">
+            {/* Header Status Banner */}
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono font-bold text-base text-etiserv-blue bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1 rounded-md border border-blue-200/60 dark:border-blue-900/40">
+                  {selectedInvoice.invoiceSeq}
+                </span>
+                <Badge
+                  variant={selectedInvoice.amountRemaining <= 0 ? "success" : "warning"}
+                  dot
+                >
+                  {selectedInvoice.amountRemaining <= 0 ? "Pagada / Liquidada" : "Por Cobrar / Abierta"}
+                </Badge>
+                <Badge
+                  variant={selectedInvoice.tracking?.isDirectSale ? "neutral" : "primary"}
+                >
+                  {selectedInvoice.tracking?.isDirectSale ? "⚡ Venta Directa (Sin antecedentes)" : "🏢 Flujo Comercial B2B"}
+                </Badge>
+              </div>
+
+              <div className="text-right">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Factura</span>
+                <span className="font-mono font-bold text-lg text-slate-900 dark:text-white">
+                  {formatCurrency(selectedInvoice.total || 0)}
+                </span>
+              </div>
+            </div>
+
+            {/* SECCIÓN DE TRAZABILIDAD COMERCIAL (TIMELINE / STEPPER) */}
+            <div className="bg-slate-50/70 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/10 rounded-xl p-3.5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                  <ArrowRight className="w-4 h-4 text-etiserv-blue" />
+                  <span>Árbol de Trazabilidad Comercial (Ciclo de Venta)</span>
+                </span>
+                {selectedInvoice.tracking?.isDirectSale ? (
+                  <span className="text-[11px] font-semibold text-slate-500 bg-slate-200/70 dark:bg-white/10 px-2 py-0.5 rounded">
+                    Factura Directa
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-900/40">
+                    Ciclo B2B Trazable
+                  </span>
+                )}
+              </div>
+
+              {selectedInvoice.tracking?.isDirectSale ? (
+                <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/30 rounded-lg text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2.5">
+                  <Zap className="w-5 h-5 text-amber-500 shrink-0" />
+                  <div>
+                    <strong className="block font-semibold">Venta Directa de Mostrador / POS</strong>
+                    <span className="text-[11px] text-amber-700/90 dark:text-amber-300/90">
+                      Esta factura fue emitida directamente en caja o venta rápida, por lo cual no cuenta con cotización comercial ni pedido previo asociado.
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {/* Step 1: Cotización */}
+                  <div className={`p-3 rounded-lg border text-xs space-y-1 ${
+                    selectedInvoice.tracking?.quote
+                      ? "bg-white dark:bg-white/[0.04] border-blue-200/80 dark:border-blue-900/40"
+                      : "bg-slate-100/60 dark:bg-white/[0.01] border-slate-200/60 dark:border-white/5 opacity-60"
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[11px] text-slate-500 flex items-center gap-1">
+                        <FileText className="w-3 h-3 text-etiserv-blue" />
+                        <span>1. Cotización</span>
+                      </span>
+                      {selectedInvoice.tracking?.quote ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-mono">N/A</span>
+                      )}
+                    </div>
+                    {selectedInvoice.tracking?.quote ? (
+                      <>
+                        <span className="font-mono font-bold text-xs text-etiserv-blue block">
+                          {selectedInvoice.tracking.quote.quoteSeq}
+                        </span>
+                        <div className="text-[10px] text-slate-400">
+                          Fecha: {selectedInvoice.tracking.quote.date}
+                        </div>
+                        <div className="text-[10px] font-mono font-semibold text-slate-700 dark:text-slate-300">
+                          Monto: {formatCurrency(selectedInvoice.tracking.quote.total)}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-[11px] text-slate-400 italic block">Sin cotización previa</span>
+                    )}
+                  </div>
+
+                  {/* Step 2: Pedido */}
+                  <div className={`p-3 rounded-lg border text-xs space-y-1 ${
+                    selectedInvoice.tracking?.order
+                      ? "bg-white dark:bg-white/[0.04] border-purple-200/80 dark:border-purple-900/40"
+                      : "bg-slate-100/60 dark:bg-white/[0.01] border-slate-200/60 dark:border-white/5 opacity-60"
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[11px] text-slate-500 flex items-center gap-1">
+                        <ShoppingBag className="w-3 h-3 text-purple-500" />
+                        <span>2. Pedido B2B</span>
+                      </span>
+                      {selectedInvoice.tracking?.order ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-mono">N/A</span>
+                      )}
+                    </div>
+                    {selectedInvoice.tracking?.order ? (
+                      <>
+                        <span className="font-mono font-bold text-xs text-purple-600 dark:text-purple-400 block">
+                          {selectedInvoice.tracking.order.orderSeq}
+                        </span>
+                        <div className="text-[10px] text-slate-400">
+                          Fecha: {selectedInvoice.tracking.order.date}
+                        </div>
+                        <div className="text-[10px] font-mono font-semibold text-slate-700 dark:text-slate-300">
+                          {selectedInvoice.tracking.order.paymentTerms || "30 Días Crédito"}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-[11px] text-slate-400 italic block">Facturación directa</span>
+                    )}
+                  </div>
+
+                  {/* Step 3: Factura */}
+                  <div className="p-3 rounded-lg border bg-white dark:bg-white/[0.04] border-emerald-200/80 dark:border-emerald-900/40 text-xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[11px] text-slate-500 flex items-center gap-1">
+                        <Receipt className="w-3 h-3 text-emerald-500" />
+                        <span>3. Factura Fiscal</span>
+                      </span>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    </div>
+                    <span className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400 block">
+                      {selectedInvoice.invoiceSeq}
+                    </span>
+                    <div className="text-[10px] text-slate-400">
+                      Emitida: {selectedInvoice.date}
+                    </div>
+                    <div className="text-[10px] font-mono font-semibold text-slate-700 dark:text-slate-300">
+                      Total: {formatCurrency(selectedInvoice.total)}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Datos del Cliente y Fechas */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/10">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                  Receptor / Cliente Fiscal
+                </span>
+                <span className="font-bold text-slate-900 dark:text-white block text-sm">
+                  {selectedInvoice.partnerName}
+                </span>
+                <span className="text-slate-400 text-[11px]">
+                  Empresa Emisora: {activeCompany?.name || "Distribuidora Nacional PyME S.A."}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/10 grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                    Fecha Emisión
+                  </span>
+                  <span className="font-mono font-semibold text-slate-900 dark:text-white block">
+                    {selectedInvoice.date}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                    Vencimiento
+                  </span>
+                  <span className="font-mono font-semibold text-slate-900 dark:text-white block">
+                    {selectedInvoice.dueDate || selectedInvoice.date}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Partidas Facturadas */}
+            <div className="space-y-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Conceptos & Partidas Facturadas ({selectedInvoice.items?.length || 1} artículos)
+              </span>
+
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {(selectedInvoice.items && selectedInvoice.items.length > 0) ? (
+                  selectedInvoice.items.map((it, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 dark:bg-white/[0.02] border border-slate-200/60 dark:border-white/5 text-xs"
+                    >
+                      <div className="min-w-0 flex-1 pr-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[10px] font-bold text-etiserv-blue bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded">
+                            {it.productCode || `SKU-${it.productId}`}
+                          </span>
+                          <span className="font-semibold text-slate-900 dark:text-white truncate">
+                            {it.productName}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                          Cantidad: {it.qty} • P. Unit: {formatCurrency(it.unitPrice)} {it.discountPct > 0 ? `• Dto: ${it.discountPct}%` : ""}
+                        </div>
+                      </div>
+                      <span className="font-mono font-bold text-slate-900 dark:text-white shrink-0">
+                        {formatCurrency(it.qty * it.unitPrice * (1 - (it.discountPct || 0) / 100))}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-white/[0.02] border border-slate-200/60 dark:border-white/5 text-xs flex justify-between items-center">
+                    <div>
+                      <span className="font-semibold text-slate-900 dark:text-white block">
+                        {selectedInvoice.notes || "Facturación Comercial de Mercancía / Servicios B2B"}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">1 Partida General</span>
+                    </div>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white">
+                      {formatCurrency(selectedInvoice.subtotal)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Totales y Estado de Cartera */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/10 text-xs space-y-1 font-mono">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Estado de Cobranza (CxC)
+                </span>
+                <div className="flex justify-between text-slate-500">
+                  <span>Monto Pagado / Acreditado:</span>
+                  <span className="text-emerald-600 font-semibold">{formatCurrency(selectedInvoice.amountPaid || 0)}</span>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>Saldo Pendiente de Cobro:</span>
+                  <span className={`font-bold ${selectedInvoice.amountRemaining > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                    {formatCurrency(selectedInvoice.amountRemaining || 0)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 rounded-xl p-3 space-y-1 text-xs font-mono">
+                <div className="flex justify-between text-slate-500">
+                  <span>Subtotal Neto:</span>
+                  <span>{formatCurrency(selectedInvoice.subtotal || 0)}</span>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>IVA Trasladado (16%):</span>
+                  <span>{formatCurrency(selectedInvoice.taxAmount || 0)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-sm text-slate-900 dark:text-white pt-1 border-t border-slate-200 dark:border-white/10">
+                  <span>Total Factura:</span>
+                  <span className="text-etiserv-blue">{formatCurrency(selectedInvoice.total || 0)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-white/10">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handlePrintInvoiceDirect(selectedInvoice)}
+                className="text-xs gap-1.5 text-etiserv-blue border-etiserv-blue/40"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Imprimir Factura Fiscal / Ticket</span>
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setInvoiceDetailModalOpen(false);
+                  setSelectedInvoice(null);
+                }}
+              >
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+{/* Thermal Ticket & Factura Modal */}
       {ticketData && (
         <ThermalTicketModal
           isOpen={ticketModalOpen}

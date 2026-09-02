@@ -647,6 +647,7 @@ export class SalesService {
       }
     } catch {}
 
+    const idNum = parseInt(quote.id.replace(/\D/g, ""), 10);
     let invoiceId = Date.now();
     try {
       const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", {
@@ -655,6 +656,7 @@ export class SalesService {
         statusSelect: 2, // 2: Validada / Por cobrar
         operationTypeSelect: 1, // 1: Cliente (CxC)
         operationSubTypeSelect: 1, // 1: Factura Estándar
+        saleOrder: !isNaN(idNum) ? { id: idNum } : undefined,
         partner: { id: quote.partnerId, version: partnerVersion },
         company: { id: quote.companyId || 13 },
         currency: currencyObj,
@@ -663,7 +665,8 @@ export class SalesService {
         inTaxTotal: quote.total,
         amountRemaining: quote.total,
         amountPaid: 0,
-        specificNotes: `Factura generada desde cotización ${quote.quoteSeq}`,
+        specificNotes: `Cotización Origen: ${quote.quoteSeq}`,
+        description: `Cotización Origen: ${quote.quoteSeq}`,
       });
       if (invRes.data && invRes.data.length > 0 && invRes.data[0].id) {
         invoiceId = Number(invRes.data[0].id);
@@ -686,7 +689,6 @@ export class SalesService {
         }
       }
 
-      const idNum = parseInt(quote.id.replace(/\D/g, ""), 10);
       if (!isNaN(idNum)) {
         let soVersion = 0;
         try {
@@ -732,6 +734,7 @@ export class SalesService {
       }
     } catch {}
 
+    const idNum = parseInt(order.id.replace(/\D/g, ""), 10);
     let invoiceId = Date.now();
     try {
       const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", {
@@ -740,6 +743,7 @@ export class SalesService {
         statusSelect: 2, // 2: Validada / Por cobrar
         operationTypeSelect: 1, // 1: Cliente (CxC)
         operationSubTypeSelect: 1, // 1: Factura Estándar
+        saleOrder: !isNaN(idNum) ? { id: idNum } : undefined,
         partner: { id: order.partnerId, version: partnerVersion },
         company: { id: order.companyId || 13 },
         currency: currencyObj,
@@ -748,7 +752,8 @@ export class SalesService {
         inTaxTotal: order.total,
         amountRemaining: order.total,
         amountPaid: 0,
-        specificNotes: `Factura generada desde pedido ${order.orderSeq}`,
+        specificNotes: `Pedido Origen: ${order.orderSeq}${order.quoteSeq ? ` (Cotización: ${order.quoteSeq})` : ""}`,
+        description: `Pedido Origen: ${order.orderSeq}${order.quoteSeq ? ` | Cotización: ${order.quoteSeq}` : ""}`,
       });
       if (invRes.data && invRes.data.length > 0 && invRes.data[0].id) {
         invoiceId = Number(invRes.data[0].id);
@@ -771,7 +776,6 @@ export class SalesService {
         }
       }
 
-      const idNum = parseInt(order.id.replace(/\D/g, ""), 10);
       if (!isNaN(idNum)) {
         let soVersion = 0;
         try {
@@ -817,6 +821,7 @@ export class SalesService {
           "partner",
           "company",
           "currency",
+          "saleOrder",
           "exTaxTotal",
           "taxTotal",
           "inTaxTotal",
@@ -829,26 +834,176 @@ export class SalesService {
       });
 
       const list = Array.isArray(res.data) ? res.data : [];
-      return list.map((inv: any) => ({
-        id: String(inv.id),
-        invoiceSeq: inv.invoiceId || inv.invoiceSeq || `FAC-2026-${String(inv.id).padStart(5, "0")}`,
-        companyId: Number(companyId),
-        partnerId: inv.partner?.id || 1,
-        partnerName: inv.partner?.name || inv.partner?.simpleFullName || inv.partner?.fullName || "Cliente General",
-        date: inv.invoiceDate || new Date().toISOString().slice(0, 10),
-        dueDate: inv.dueDate || inv.specificNotes || inv.invoiceDate || new Date().toISOString().slice(0, 10),
-        status: Number(inv.amountRemaining) <= 0 && Number(inv.amountPaid) > 0 ? "PAID" : inv.statusSelect === 2 ? "OPEN" : "DRAFT",
-        subtotal: Number(inv.exTaxTotal || 0),
-        taxAmount: Number(inv.taxTotal || 0),
-        total: Number(inv.inTaxTotal || 0),
-        amountPaid: Number(inv.amountPaid || 0),
-        amountRemaining: Number(inv.amountRemaining ?? inv.inTaxTotal ?? 0),
-        notes: inv.description || inv.specificNotes || "",
-      }));
+      return list.map((inv: any) => {
+        const notesStr = `${inv.description || ""} ${inv.specificNotes || ""}`;
+        const soSeq = inv.saleOrder?.saleOrderSeq || inv.saleOrder?.fullName || "";
+        const isQuote = soSeq.includes("COT-") || notesStr.includes("COT-") || notesStr.includes("Cotización");
+        const isOrder = soSeq.includes("PED-") || notesStr.includes("PED-") || notesStr.includes("Pedido");
+        const isDirect = !inv.saleOrder && !isQuote && !isOrder;
+
+        let originSummary = "Venta Directa";
+        let originBadgeType = "DIRECT";
+        if (isQuote) {
+          const m = notesStr.match(/COT-\d{4}-\d+/)?.[0] || (soSeq.includes("COT-") ? soSeq.match(/COT-\d{4}-\d+/)?.[0] : "");
+          originSummary = `Cotización ${m || ""}`.trim();
+          originBadgeType = "QUOTE";
+        } else if (isOrder) {
+          const m = notesStr.match(/PED-\d{4}-\d+/)?.[0] || (soSeq.includes("PED-") ? soSeq.match(/PED-\d{4}-\d+/)?.[0] : "");
+          originSummary = `Pedido ${m || ""}`.trim();
+          originBadgeType = "ORDER";
+        }
+
+        return {
+          id: String(inv.id),
+          invoiceSeq: inv.invoiceId || inv.invoiceSeq || `FAC-2026-${String(inv.id).padStart(5, "0")}`,
+          companyId: Number(companyId),
+          partnerId: inv.partner?.id || 1,
+          partnerName: inv.partner?.name || inv.partner?.simpleFullName || inv.partner?.fullName || "Cliente General",
+          date: inv.invoiceDate || new Date().toISOString().slice(0, 10),
+          dueDate: inv.dueDate || inv.specificNotes || inv.invoiceDate || new Date().toISOString().slice(0, 10),
+          status: Number(inv.amountRemaining) <= 0 && Number(inv.amountPaid) > 0 ? "PAID" : inv.statusSelect === 2 ? "OPEN" : "DRAFT",
+          subtotal: Number(inv.exTaxTotal || 0),
+          taxAmount: Number(inv.taxTotal || 0),
+          total: Number(inv.inTaxTotal || 0),
+          amountPaid: Number(inv.amountPaid || 0),
+          amountRemaining: Number(inv.amountRemaining ?? inv.inTaxTotal ?? 0),
+          notes: inv.description || inv.specificNotes || "",
+          originType: isDirect ? "DIRECT_SALE" : "B2B_FLOW",
+          originSummary,
+          originBadgeType,
+        };
+      });
     } catch (err: any) {
       console.warn("[SalesService] Error consultando facturas de venta en Axelor:", err.message);
       return [];
     }
+  }
+
+  public async getInvoice(invoiceId: string): Promise<any | null> {
+    try {
+      const idNum = parseInt(invoiceId.replace(/\D/g, ""), 10);
+      let inv: any = null;
+      if (!isNaN(idNum)) {
+        inv = await axelor.fetch("com.axelor.apps.account.db.Invoice", idNum);
+      }
+      if (!inv) {
+        const searchRes = await axelor.search("com.axelor.apps.account.db.Invoice", {
+          data: { _domain: `self.invoiceId = '${invoiceId}' or self.invoiceSeq = '${invoiceId}'` },
+          limit: 1,
+        });
+        if (searchRes.data && searchRes.data.length > 0) {
+          inv = searchRes.data[0];
+        }
+      }
+
+      if (inv) {
+        let lines: any[] = [];
+        try {
+          const linesRes = await axelor.search("com.axelor.apps.account.db.InvoiceLine", {
+            data: { _domain: `self.invoice.id = ${inv.id}` },
+            fields: ["id", "product", "productName", "qty", "price", "discount", "exTaxTotal", "inTaxTotal", "unit"],
+            limit: 50,
+          });
+          if (linesRes.data && Array.isArray(linesRes.data) && linesRes.data.length > 0) {
+            lines = linesRes.data;
+          }
+        } catch {}
+
+        let linkedSO: any = null;
+        if (inv.saleOrder?.id) {
+          try {
+            linkedSO = await axelor.fetch("com.axelor.apps.sale.db.SaleOrder", inv.saleOrder.id);
+          } catch {}
+        }
+
+        if (lines.length === 0 && linkedSO?.id) {
+          try {
+            const solRes = await axelor.search("com.axelor.apps.sale.db.SaleOrderLine", {
+              data: { _domain: `self.saleOrder.id = ${linkedSO.id}` },
+              fields: ["id", "product", "productName", "qty", "price", "discount", "exTaxTotal", "inTaxTotal", "unit"],
+              limit: 50,
+            });
+            if (solRes.data && solRes.data.length > 0) {
+              lines = solRes.data;
+            }
+          } catch {}
+        }
+
+        const notesStr = `${inv.description || ""} ${inv.specificNotes || ""}`;
+        const isLinkedToQuote = (linkedSO?.saleOrderSeq && linkedSO.saleOrderSeq.startsWith("COT")) || notesStr.includes("COT-") || notesStr.includes("Cotización");
+        const isLinkedToOrder = (linkedSO?.saleOrderSeq && linkedSO.saleOrderSeq.startsWith("PED")) || notesStr.includes("PED-") || notesStr.includes("Pedido");
+        const isDirectSale = !linkedSO && !isLinkedToQuote && !isLinkedToOrder;
+
+        let quoteTracking = null;
+        if (isLinkedToQuote) {
+          const quoteSeqMatch = notesStr.match(/COT-\d{4}-\d+/)?.[0] || (linkedSO?.saleOrderSeq?.startsWith("COT") ? linkedSO.saleOrderSeq : undefined);
+          quoteTracking = {
+            id: linkedSO?.id ? String(linkedSO.id) : (quoteSeqMatch || "COT-ORIGEN"),
+            quoteSeq: quoteSeqMatch || linkedSO?.saleOrderSeq || "COT-COMERCIAL",
+            date: linkedSO?.orderDate || linkedSO?.creationDate || inv.invoiceDate,
+            total: Number(linkedSO?.inTaxTotal || inv.inTaxTotal || 0),
+            status: "CONVERTED",
+          };
+        }
+
+        let orderTracking = null;
+        if (isLinkedToOrder) {
+          const orderSeqMatch = notesStr.match(/PED-\d{4}-\d+/)?.[0] || (linkedSO?.saleOrderSeq?.startsWith("PED") ? linkedSO.saleOrderSeq : undefined);
+          orderTracking = {
+            id: linkedSO?.id ? String(linkedSO.id) : (orderSeqMatch || "PED-ORIGEN"),
+            orderSeq: orderSeqMatch || linkedSO?.saleOrderSeq || "PED-B2B",
+            date: linkedSO?.orderDate || inv.invoiceDate,
+            total: Number(linkedSO?.inTaxTotal || inv.inTaxTotal || 0),
+            paymentTerms: "30_DIAS_CREDITO",
+            status: "INVOICED",
+          };
+        }
+
+        return {
+          id: String(inv.id),
+          invoiceSeq: inv.invoiceId || inv.invoiceSeq || `FAC-2026-${String(inv.id).padStart(5, "0")}`,
+          companyId: inv.company?.id || 13,
+          partnerId: inv.partner?.id || 1,
+          partnerName: inv.partner?.name || inv.partner?.simpleFullName || inv.partner?.fullName || "Cliente General",
+          date: inv.invoiceDate || new Date().toISOString().slice(0, 10),
+          dueDate: inv.dueDate || inv.specificNotes || inv.invoiceDate || new Date().toISOString().slice(0, 10),
+          status: Number(inv.amountRemaining) <= 0 && Number(inv.amountPaid) > 0 ? "PAID" : inv.statusSelect === 2 ? "OPEN" : "DRAFT",
+          subtotal: Number(inv.exTaxTotal || 0),
+          taxAmount: Number(inv.taxTotal || 0),
+          total: Number(inv.inTaxTotal || 0),
+          amountPaid: Number(inv.amountPaid || 0),
+          amountRemaining: Number(inv.amountRemaining ?? inv.inTaxTotal ?? 0),
+          notes: inv.description || inv.specificNotes || "",
+          items: lines.map((l: any) => ({
+            productId: l.product?.id || 1,
+            productName: l.productName || l.product?.name || "Producto",
+            productCode: l.product?.code || "SKU",
+            qty: Number(l.qty || 1),
+            unitPrice: Number(l.price || 0),
+            discountPct: Number(l.discount || 0),
+          })),
+          tracking: {
+            originType: isDirectSale ? "DIRECT_SALE" : "B2B_FLOW",
+            isDirectSale,
+            quote: quoteTracking,
+            order: orderTracking,
+            invoice: {
+              id: String(inv.id),
+              invoiceSeq: inv.invoiceId || inv.invoiceSeq || `FAC-2026-${String(inv.id).padStart(5, "0")}`,
+              date: inv.invoiceDate || new Date().toISOString().slice(0, 10),
+              dueDate: inv.dueDate || inv.specificNotes || inv.invoiceDate || new Date().toISOString().slice(0, 10),
+              total: Number(inv.inTaxTotal || 0),
+              amountPaid: Number(inv.amountPaid || 0),
+              amountRemaining: Number(inv.amountRemaining ?? inv.inTaxTotal ?? 0),
+              status: Number(inv.amountRemaining) <= 0 && Number(inv.amountPaid) > 0 ? "PAID" : "OPEN",
+            },
+          },
+        };
+      }
+    } catch (err: any) {
+      console.warn("[SalesService] Error obteniendo detalle de factura en Axelor:", err.message);
+    }
+    return null;
   }
 }
 

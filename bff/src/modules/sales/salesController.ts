@@ -251,3 +251,24 @@ salesRouter.get("/invoices", async (req: AuthenticatedRequest, res: Response): P
     res.status(500).json({ success: false, error: err.message || "Error al consultar facturas" });
   }
 });
+
+// GET /api/sales/invoices/:id
+salesRouter.get("/invoices/:id", async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  const start = performance.now();
+  try {
+    const invoice = await salesService.getInvoice(req.params.id);
+    const duration = Math.round(performance.now() - start);
+    res.set("Server-Timing", `total;dur=${duration}`);
+    if (!invoice) {
+      res.status(404).json({ success: false, error: "Factura no encontrada" });
+      return;
+    }
+    res.json({
+      success: true,
+      data: invoice,
+      executionTimeMs: duration,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Error al obtener factura" });
+  }
+});
