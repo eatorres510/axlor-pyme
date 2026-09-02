@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import { useCompany } from "../context/CompanyContext";
 import { catalogApi } from "../api/catalogApi";
-import { salesApi, SaleQuoteRecord, B2BOrderRecord, PriceList } from "../api/salesApi";
+import { salesApi, SaleQuoteRecord, B2BOrderRecord, SalesInvoiceRecord, PriceList } from "../api/salesApi";
 import { financeApi } from "../api/financeApi";
 import { Autocomplete, AutocompleteItem } from "../components/ui/Autocomplete";
 import { Card } from "../components/ui/Card";
@@ -41,7 +41,7 @@ import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { ThermalTicketModal } from "../components/layout/ThermalTicketModal";
 
-export type SalesTab = "QUOTES" | "ORDERS" | "PRICE_LISTS";
+export type SalesTab = "QUOTES" | "ORDERS" | "INVOICES" | "PRICE_LISTS";
 
 interface SalesB2BViewProps {
   initialTab?: SalesTab;
@@ -278,6 +278,9 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
   const [activeTab, setActiveTab] = useState<SalesTab>(initialTab);
   const [quotes, setQuotes] = useState<SaleQuoteRecord[]>([]);
   const [orders, setOrders] = useState<B2BOrderRecord[]>([]);
+  const [invoices, setInvoices] = useState<SalesInvoiceRecord[]>([]);
+  const [selectedInvoice, setSelectedInvoice] = useState<SalesInvoiceRecord | null>(null);
+  const [invoiceDetailModalOpen, setInvoiceDetailModalOpen] = useState(false);
   const [priceLists, setPriceLists] = useState<PriceList[]>([]);
   const [partners, setPartners] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -435,15 +438,17 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
     if (!activeCompany) return;
     try {
       setLoading(true);
-      const [quotesData, ordersData, priceListsData, partnersData, productsData] = await Promise.all([
+      const [quotesData, ordersData, invoicesData, priceListsData, partnersData, productsData] = await Promise.all([
         salesApi.listQuotes(activeCompany.id),
         salesApi.listOrders(activeCompany.id),
+        salesApi.listInvoices(activeCompany.id),
         salesApi.listPriceLists(),
         catalogApi.listPartners(activeCompany.id),
         catalogApi.listProducts(activeCompany.id),
       ]);
       setQuotes(quotesData || []);
       setOrders(ordersData || []);
+      setInvoices(invoicesData || []);
       setPriceLists(priceListsData || []);
       setPartners(partnersData || []);
       setProducts(productsData || []);
@@ -641,11 +646,52 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
       const res = await salesApi.convertToInvoice(quoteId);
       const ttf = ((performance.now() - t0) / 1000).toFixed(2);
       setLastConversionTime(ttf);
-      alert(`¡Factura ${res.invoiceSeq || "FACT-2026-001"} emitida con éxito en ${ttf}s desde Cotización!`);
-      loadData();
+      await loadData();
+      setActiveTab("INVOICES");
+      alert(`¡Factura ${res.invoiceSeq || "FAC-2026-00001"} emitida con éxito en ${ttf}s desde Cotización!`);
     } catch (err: any) {
       alert(`Error al facturar cotización: ${err.message}`);
     }
+  };
+
+  const handleConvertOrderToInvoice = async (orderId: string) => {
+    const t0 = performance.now();
+    try {
+      const res = await salesApi.convertOrderToInvoice(orderId);
+      const ttf = ((performance.now() - t0) / 1000).toFixed(2);
+      setLastConversionTime(ttf);
+      await loadData();
+      setActiveTab("INVOICES");
+      alert(`¡Factura ${res.invoiceSeq || "FAC-2026-00001"} emitida con éxito en ${ttf}s desde Pedido!`);
+    } catch (err: any) {
+      alert(`Error al facturar pedido: ${err.message}`);
+    }
+  };
+
+  const handlePrintInvoiceDirect = (inv: SalesInvoiceRecord) => {
+    if (!activeCompany) return;
+    setTicketData({
+      ticketNumber: inv.invoiceSeq,
+      docTypeLabel: "FACTURA FISCAL DE VENTA (CFDI)",
+      companyName: activeCompany.name,
+      companyTaxId: activeCompany.taxId,
+      branchName: "Oficina de Ventas B2B",
+      clientName: inv.partnerName,
+      date: new Date().toLocaleString("es-MX"),
+      items: [
+        {
+          productName: inv.notes || "Facturación Comercial de Mercancía / Servicios B2B",
+          qty: 1,
+          unitPrice: inv.subtotal,
+          total: inv.subtotal,
+        },
+      ],
+      subtotal: inv.subtotal,
+      tax: inv.taxAmount,
+      total: inv.total,
+      notes: `Vencimiento: ${inv.dueDate} | Saldo Pendiente: ${formatCurrency(inv.amountRemaining)}`,
+    });
+    setTicketModalOpen(true);
   };
 
   const handleOpenQuoteDetail = async (quote: SaleQuoteRecord, startInEdit = false) => {
@@ -949,6 +995,21 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
         <button
           type="button"
           onClick={() => {
+            setActiveTab("INVOICES");
+            setSearchQuery("");
+          }}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex-shrink-0 ${
+            activeTab === "INVOICES"
+              ? "bg-etiserv-blue text-white"
+              : "bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:text-slate-900"
+          }`}
+        >
+          <Receipt className="w-3.5 h-3.5" />
+          <span>Facturas de Venta ({invoices.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
             setActiveTab("PRICE_LISTS");
             setSearchQuery("");
           }}
@@ -1220,18 +1281,140 @@ export const SalesB2BView: React.FC<SalesB2BViewProps> = ({ initialTab = "QUOTES
                         <Badge variant="primary" dot>{o.status}</Badge>
                       </td>
                       <td className="py-3 px-5 text-right" onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleOpenOrderDetail(o)}
-                          className="text-[11px] py-1 px-2.5 gap-1 text-slate-600 dark:text-slate-300"
-                        >
-                          <Eye className="w-3 h-3 text-slate-400" />
-                          <span>Ver Detalle</span>
-                        </Button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenOrderDetail(o)}
+                            className="text-[11px] py-1 px-2.5 gap-1 text-slate-600 dark:text-slate-300"
+                          >
+                            <Eye className="w-3 h-3 text-slate-400" />
+                            <span>Ver</span>
+                          </Button>
+                          {o.status !== "INVOICED" && (
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              glow
+                              onClick={() => handleConvertOrderToInvoice(o.id || o.orderSeq)}
+                              className="text-[11px] py-1 px-2.5 gap-1"
+                              title="Facturar Pedido y enviar a CxC"
+                            >
+                              <Zap className="w-3 h-3 text-amber-300" />
+                              <span>Facturar</span>
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* PAGE: INVOICES (FACTURAS DE VENTA) */}
+      {activeTab === "INVOICES" && (
+        <Card className="overflow-hidden">
+          <div className="p-4 border-b border-slate-200 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Buscar por folio de factura, cliente..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#06172A] text-slate-900 dark:text-white"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="neutral" className="font-mono text-xs">
+                Total Facturado: {formatCurrency(invoices.reduce((s, i) => s + (i.total || 0), 0))}
+              </Badge>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 dark:bg-etiserv-navyDark text-slate-400 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200 dark:border-white/10">
+                <tr>
+                  <th className="py-2.5 px-5">Folio Factura</th>
+                  <th className="py-2.5 px-5">Cliente B2B</th>
+                  <th className="py-2.5 px-5">Fecha Emisión</th>
+                  <th className="py-2.5 px-5">Vencimiento</th>
+                  <th className="py-2.5 px-5 text-right">Total Factura</th>
+                  <th className="py-2.5 px-5 text-right">Saldo Pendiente</th>
+                  <th className="py-2.5 px-5 text-center">Estado</th>
+                  <th className="py-2.5 px-5 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                {invoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-8 text-center text-slate-400">
+                      No hay facturas de venta registradas aún.
+                    </td>
+                  </tr>
+                ) : (
+                  invoices
+                    .filter((inv) =>
+                      (inv.invoiceSeq || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      (inv.partnerName || "").toLowerCase().includes(searchQuery.toLowerCase())
+                    )
+                    .map((inv) => (
+                      <tr
+                        key={inv.id}
+                        className="hover:bg-slate-50/70 dark:hover:bg-white/[0.04] transition-colors group"
+                      >
+                        <td className="py-3 px-5">
+                          <span className="font-mono text-xs font-bold text-etiserv-blue bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200/60 dark:border-blue-900/40 flex items-center gap-1 w-fit">
+                            <Receipt className="w-3 h-3 inline text-etiserv-blue" />
+                            <span>{inv.invoiceSeq}</span>
+                          </span>
+                        </td>
+                        <td className="py-3 px-5 font-semibold text-slate-900 dark:text-white">
+                          {inv.partnerName}
+                        </td>
+                        <td className="py-3 px-5 font-mono text-slate-600 dark:text-slate-300">
+                          {inv.date}
+                        </td>
+                        <td className="py-3 px-5 font-mono text-slate-500">
+                          {inv.dueDate}
+                        </td>
+                        <td className="py-3 px-5 text-right font-bold tabular-nums text-slate-900 dark:text-white font-mono">
+                          {formatCurrency(inv.total || 0)}
+                        </td>
+                        <td className="py-3 px-5 text-right font-bold tabular-nums font-mono">
+                          <span className={inv.amountRemaining > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>
+                            {formatCurrency(inv.amountRemaining || 0)}
+                          </span>
+                        </td>
+                        <td className="py-3 px-5 text-center">
+                          <Badge
+                            variant={inv.amountRemaining <= 0 ? "success" : "warning"}
+                            dot
+                          >
+                            {inv.amountRemaining <= 0 ? "Pagada" : "Por Cobrar"}
+                          </Badge>
+                        </td>
+                        <td className="py-3 px-5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handlePrintInvoiceDirect(inv)}
+                              className="text-[11px] py-1 px-2 gap-1 text-slate-700 dark:text-slate-200 hover:border-etiserv-blue"
+                              title="Imprimir Factura Fiscal / Ticket Térmico"
+                            >
+                              <Printer className="w-3 h-3 text-etiserv-blue" />
+                              <span>Imprimir</span>
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                )}
               </tbody>
             </table>
           </div>

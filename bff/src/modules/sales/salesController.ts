@@ -1,4 +1,4 @@
-﻿import { Router, Response } from "express";
+import { Router, Response } from "express";
 import { salesService } from "./salesService.js";
 import { CreateQuoteSchema, CreateB2BOrderSchema } from "./salesTypes.js";
 import { verifyJWT, tenantGuard, AuthenticatedRequest } from "../auth/authMiddleware.js";
@@ -213,5 +213,41 @@ salesRouter.post("/quotes/:id/convert-to-invoice", async (req: AuthenticatedRequ
     });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message || "Error al facturar cotización" });
+  }
+});
+
+// POST /api/sales/orders/:id/convert-to-invoice
+salesRouter.post("/orders/:id/convert-to-invoice", async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  const start = performance.now();
+  try {
+    const result = await salesService.convertOrderToInvoice(req.params.id);
+    const duration = Math.round(performance.now() - start);
+    res.set("Server-Timing", `axelor;dur=${duration}, total;dur=${duration}`);
+    res.json({
+      success: true,
+      message: `Factura ${result.invoiceSeq} generada desde pedido ${result.orderSeq}`,
+      data: result,
+      executionTimeMs: duration,
+    });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message || "Error al facturar pedido" });
+  }
+});
+
+// GET /api/sales/invoices
+salesRouter.get("/invoices", async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  const start = performance.now();
+  try {
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : req.user?.activeCompanyId || 13;
+    const invoices = await salesService.listInvoices(companyId);
+    const duration = Math.round(performance.now() - start);
+    res.set("Server-Timing", `total;dur=${duration}`);
+    res.json({
+      success: true,
+      data: invoices,
+      executionTimeMs: duration,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Error al consultar facturas" });
   }
 });

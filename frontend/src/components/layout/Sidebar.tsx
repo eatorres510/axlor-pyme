@@ -100,6 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: "pos", label: "Punto de Venta (POS)", icon: ShoppingCart, badge: "Caja", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "CASHIER"] },
         { id: "sales-b2b", label: "Cotizaciones Comerciales", icon: FileText, tab: "QUOTES", badge: "B2B", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN"] },
         { id: "sales-b2b", label: "Pedidos de Venta B2B", icon: ShoppingBag, tab: "ORDERS", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN"] },
+        { id: "sales-b2b", label: "Facturas de Venta (CxC)", icon: Receipt, tab: "INVOICES", badge: "Fiscal", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "CASHIER", "ACCOUNTANT"] },
         { id: "catalog", label: "Clientes & Directorio", icon: Users, tab: "CUSTOMERS", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "CASHIER"] },
         { id: "sales-b2b", label: "Listas de Precios & Tarifas", icon: Tags, tab: "PRICE_LISTS", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN"] },
       ],

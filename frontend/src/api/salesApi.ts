@@ -52,6 +52,24 @@ export interface PriceList {
   description: string;
 }
 
+export interface SalesInvoiceRecord {
+  id: string;
+  invoiceSeq: string;
+  companyId: number;
+  partnerId: number;
+  partnerName: string;
+  date: string;
+  dueDate: string;
+  status: "DRAFT" | "OPEN" | "PAID" | "CANCELED";
+  items?: SaleQuoteItem[];
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  amountPaid: number;
+  amountRemaining: number;
+  notes?: string;
+}
+
 export const salesApi = {
   listPriceLists: async (): Promise<PriceList[]> => {
     const res = await api.get<{ success: boolean; data: PriceList[] }>("/sales/price-lists");
@@ -113,8 +131,18 @@ export const salesApi = {
     return res.data.data;
   },
 
+  convertOrderToInvoice: async (orderId: string): Promise<any> => {
+    const res = await api.post<{ success: boolean; data: any }>(`/sales/orders/${orderId}/convert-to-invoice`);
+    return res.data.data;
+  },
+
   listOrders: async (companyId: number): Promise<B2BOrderRecord[]> => {
     const res = await api.get<{ success: boolean; data: B2BOrderRecord[] }>(`/sales/orders?companyId=${companyId}`);
+    return res.data.data;
+  },
+
+  listInvoices: async (companyId: number): Promise<SalesInvoiceRecord[]> => {
+    const res = await api.get<{ success: boolean; data: SalesInvoiceRecord[] }>(`/sales/invoices?companyId=${companyId}`);
     return res.data.data;
   },
 

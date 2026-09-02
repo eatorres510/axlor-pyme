@@ -634,7 +634,7 @@ export class SalesService {
     const invoiceSeq = await sequenceService.getNextSequence(
       "FAC",
       "com.axelor.apps.account.db.Invoice",
-      "invoiceSeq",
+      "invoiceId",
       quote.companyId
     );
 
@@ -650,10 +650,11 @@ export class SalesService {
     let invoiceId = Date.now();
     try {
       const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", {
-        invoiceSeq,
+        invoiceId: invoiceSeq,
         invoiceDate: new Date().toISOString().slice(0, 10),
         statusSelect: 2, // 2: Validada / Por cobrar
-        operationSubTypeSelect: 1, // 1: Cliente (CxC)
+        operationTypeSelect: 1, // 1: Cliente (CxC)
+        operationSubTypeSelect: 1, // 1: Factura Estándar
         partner: { id: quote.partnerId, version: partnerVersion },
         company: { id: quote.companyId || 13 },
         currency: currencyObj,
@@ -662,10 +663,27 @@ export class SalesService {
         inTaxTotal: quote.total,
         amountRemaining: quote.total,
         amountPaid: 0,
-        description: `Factura generada desde cotización ${quote.quoteSeq}`,
+        specificNotes: `Factura generada desde cotización ${quote.quoteSeq}`,
       });
       if (invRes.data && invRes.data.length > 0 && invRes.data[0].id) {
         invoiceId = Number(invRes.data[0].id);
+
+        if (quote.items && quote.items.length > 0) {
+          for (const it of quote.items) {
+            try {
+              await axelor.create("com.axelor.apps.account.db.InvoiceLine", {
+                invoice: { id: invoiceId },
+                product: { id: it.productId },
+                productName: it.productName || "Producto",
+                price: it.unitPrice,
+                qty: it.qty,
+                discount: it.discountPct || 0,
+                exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+                unit: { id: 1 },
+              });
+            } catch {}
+          }
+        }
       }
 
       const idNum = parseInt(quote.id.replace(/\D/g, ""), 10);
@@ -692,6 +710,145 @@ export class SalesService {
       quoteSeq: quote.quoteSeq,
       total: quote.total,
     };
+  }
+
+  public async convertOrderToInvoice(orderId: string): Promise<any> {
+    const order = await this.getOrder(orderId);
+    if (!order) throw new Error("Pedido no encontrado en Axelor");
+
+    const invoiceSeq = await sequenceService.getNextSequence(
+      "FAC",
+      "com.axelor.apps.account.db.Invoice",
+      "invoiceId",
+      order.companyId
+    );
+
+    const currencyObj = await this.getCompanyCurrency(order.companyId);
+    let partnerVersion = 0;
+    try {
+      const partnerRes = await axelor.fetch("com.axelor.apps.base.db.Partner", order.partnerId);
+      if (partnerRes && partnerRes.version !== undefined) {
+        partnerVersion = partnerRes.version;
+      }
+    } catch {}
+
+    let invoiceId = Date.now();
+    try {
+      const invRes = await axelor.create("com.axelor.apps.account.db.Invoice", {
+        invoiceId: invoiceSeq,
+        invoiceDate: new Date().toISOString().slice(0, 10),
+        statusSelect: 2, // 2: Validada / Por cobrar
+        operationTypeSelect: 1, // 1: Cliente (CxC)
+        operationSubTypeSelect: 1, // 1: Factura Estándar
+        partner: { id: order.partnerId, version: partnerVersion },
+        company: { id: order.companyId || 13 },
+        currency: currencyObj,
+        exTaxTotal: order.subtotal,
+        taxTotal: order.taxAmount,
+        inTaxTotal: order.total,
+        amountRemaining: order.total,
+        amountPaid: 0,
+        specificNotes: `Factura generada desde pedido ${order.orderSeq}`,
+      });
+      if (invRes.data && invRes.data.length > 0 && invRes.data[0].id) {
+        invoiceId = Number(invRes.data[0].id);
+
+        if (order.items && order.items.length > 0) {
+          for (const it of order.items) {
+            try {
+              await axelor.create("com.axelor.apps.account.db.InvoiceLine", {
+                invoice: { id: invoiceId },
+                product: { id: it.productId },
+                productName: it.productName || "Producto",
+                price: it.unitPrice,
+                qty: it.qty,
+                discount: it.discountPct || 0,
+                exTaxTotal: Number((it.unitPrice * (1 - (it.discountPct || 0) / 100) * it.qty).toFixed(2)),
+                unit: { id: 1 },
+              });
+            } catch {}
+          }
+        }
+      }
+
+      const idNum = parseInt(order.id.replace(/\D/g, ""), 10);
+      if (!isNaN(idNum)) {
+        let soVersion = 0;
+        try {
+          const soRaw = await axelor.fetch("com.axelor.apps.sale.db.SaleOrder", idNum);
+          if (soRaw && soRaw.version !== undefined) soVersion = soRaw.version;
+        } catch {}
+
+        await axelor.update("com.axelor.apps.sale.db.SaleOrder", {
+          id: idNum,
+          version: soVersion,
+          statusSelect: 3, // Invoiced
+        });
+      }
+    } catch (e: any) {
+      console.warn("[SalesService] Error facturando pedido en Axelor:", e.message);
+    }
+
+    return {
+      invoiceId,
+      invoiceSeq,
+      orderSeq: order.orderSeq,
+      total: order.total,
+    };
+  }
+
+  // ==========================================
+  // FACTURAS DE VENTA (Invoice operationTypeSelect = 1)
+  // ==========================================
+  public async listInvoices(companyId: number): Promise<any[]> {
+    try {
+      const res = await axelor.search("com.axelor.apps.account.db.Invoice", {
+        limit: 100,
+        sortBy: ["-createdOn", "-invoiceDate"],
+        data: {
+          _domain: `(self.company.id = ${companyId} or self.company.id = 1 or self.company.id = 13 or self.company is null) and (self.operationTypeSelect = 1 or self.operationSubTypeSelect = 1)`,
+        },
+        fields: [
+          "id",
+          "invoiceId",
+          "invoiceSeq",
+          "invoiceDate",
+          "dueDate",
+          "partner",
+          "company",
+          "currency",
+          "exTaxTotal",
+          "taxTotal",
+          "inTaxTotal",
+          "amountRemaining",
+          "amountPaid",
+          "statusSelect",
+          "specificNotes",
+          "description",
+        ],
+      });
+
+      const list = Array.isArray(res.data) ? res.data : [];
+      return list.map((inv: any) => ({
+        id: String(inv.id),
+        invoiceSeq: inv.invoiceId || inv.invoiceSeq || `FAC-2026-${String(inv.id).padStart(5, "0")}`,
+        companyId: Number(companyId),
+        partnerId: inv.partner?.id || 1,
+        partnerName: inv.partner?.name || inv.partner?.simpleFullName || inv.partner?.fullName || "Cliente General",
+        date: inv.invoiceDate || new Date().toISOString().slice(0, 10),
+        dueDate: inv.dueDate || inv.specificNotes || inv.invoiceDate || new Date().toISOString().slice(0, 10),
+        status: Number(inv.amountRemaining) <= 0 && Number(inv.amountPaid) > 0 ? "PAID" : inv.statusSelect === 2 ? "OPEN" : "DRAFT",
+        subtotal: Number(inv.exTaxTotal || 0),
+        taxAmount: Number(inv.taxTotal || 0),
+        total: Number(inv.inTaxTotal || 0),
+        amountPaid: Number(inv.amountPaid || 0),
+        amountRemaining: Number(inv.amountRemaining ?? inv.inTaxTotal ?? 0),
+        notes: inv.description || inv.specificNotes || "",
+      }));
+    } catch (err: any) {
+      console.warn("[SalesService] Error consultando facturas de venta en Axelor:", err.message);
+      return [];
+    }
   }
 }
 
