@@ -62,7 +62,7 @@ const MainApp: React.FC = () => {
       case "sales-b2b":
         return <SalesB2BView initialTab={activeSubTab as any} />;
       case "inventory":
-        return <InventoryView />;
+        return <InventoryView initialTab={activeSubTab as any} />;
       case "logistics":
         return <LogisticsView />;
       case "purchases":

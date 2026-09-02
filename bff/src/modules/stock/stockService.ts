@@ -100,6 +100,21 @@ export class StockService {
       warehouseStockMap[loc.id] = {};
     }
 
+    const primaryLocId = locations[0]?.id || 6;
+    const resolveLocId = (loc: any): number => {
+      if (!loc) return primaryLocId;
+      if (typeof loc === "number") {
+        if (warehouseStockMap[loc]) return loc;
+        return primaryLocId;
+      }
+      if (loc.id && warehouseStockMap[loc.id]) return loc.id;
+      if (loc.name && typeof loc.name === "string") {
+        const found = locations.find((l) => l.name?.toLowerCase().trim() === loc.name?.toLowerCase().trim());
+        if (found) return found.id;
+      }
+      return primaryLocId;
+    };
+
     try {
       const movesRes = await axelor.search("com.axelor.apps.stock.db.StockMoveLine", {
         data: { _domain: "self.stockMove.statusSelect = 2" },
@@ -110,38 +125,34 @@ export class StockService {
       for (const m of moves) {
         const pId = m.product?.id;
         const qty = Number(m.qty || 0);
-        const toLocId = m.toStockLocation?.id;
-        const fromLocId = m.fromStockLocation?.id;
+        const toLocId = resolveLocId(m.toStockLocation);
+        const fromLocId = resolveLocId(m.fromStockLocation);
         const moveType = (m as any)["stockMove.typeSelect"] ?? m.stockMove?.typeSelect;
 
         if (!pId) continue;
 
         if (moveType === 1) {
           // Inflow / Entrada de compras o ajuste positivo: suma a almacén destino
-          const targetLoc = toLocId || fromLocId;
-          if (targetLoc && warehouseStockMap[targetLoc]) {
-            warehouseStockMap[targetLoc][pId] = (warehouseStockMap[targetLoc][pId] || 0) + qty;
+          if (warehouseStockMap[toLocId]) {
+            warehouseStockMap[toLocId][pId] = (warehouseStockMap[toLocId][pId] || 0) + qty;
           }
         } else if (moveType === 2) {
-          // Outflow / Salida por venta POS o remisión: resta de almacén origen
-          const sourceLoc = fromLocId || toLocId;
-          if (sourceLoc && warehouseStockMap[sourceLoc]) {
-            warehouseStockMap[sourceLoc][pId] = (warehouseStockMap[sourceLoc][pId] || 0) - qty;
+          // Outflow / Salida por venta B2B o POS: resta de almacén origen
+          if (warehouseStockMap[fromLocId]) {
+            warehouseStockMap[fromLocId][pId] = (warehouseStockMap[fromLocId][pId] || 0) - qty;
           }
         } else if (moveType === 3) {
           // Traslado interno entre bodegas
-          if (fromLocId && warehouseStockMap[fromLocId]) {
-            warehouseStockMap[fromLocId][pId] = (warehouseStockMap[fromLocId][pId] || 0) - qty;
-          }
-          if (toLocId && warehouseStockMap[toLocId]) {
-            warehouseStockMap[toLocId][pId] = (warehouseStockMap[toLocId][pId] || 0) + qty;
+          if (fromLocId !== toLocId) {
+            if (warehouseStockMap[fromLocId]) {
+              warehouseStockMap[fromLocId][pId] = (warehouseStockMap[fromLocId][pId] || 0) - qty;
+            }
+            if (warehouseStockMap[toLocId]) {
+              warehouseStockMap[toLocId][pId] = (warehouseStockMap[toLocId][pId] || 0) + qty;
+            }
           }
         } else {
-          // Fallback en caso de no venir tipo explícito
-          if (toLocId && warehouseStockMap[toLocId]) {
-            warehouseStockMap[toLocId][pId] = (warehouseStockMap[toLocId][pId] || 0) + qty;
-          }
-          if (fromLocId && warehouseStockMap[fromLocId] && fromLocId !== toLocId) {
+          if (warehouseStockMap[fromLocId]) {
             warehouseStockMap[fromLocId][pId] = (warehouseStockMap[fromLocId][pId] || 0) - qty;
           }
         }

@@ -486,7 +486,9 @@ const SearchableTransferRow: React.FC<{
   );
 };
 
-export const InventoryView: React.FC = () => {
+export const InventoryView: React.FC<{ initialTab?: "ITEMS" | "WAREHOUSES" | "TRANSFERS" | "KARDEX" }> = ({
+  initialTab,
+}) => {
   const { activeCompany, formatCurrency } = useCompany();
   const [stockData, setStockData] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
@@ -496,7 +498,15 @@ export const InventoryView: React.FC = () => {
   const [filterLowStock, setFilterLowStock] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<number | "ALL">("ALL");
-  const [activeTab, setActiveTab] = useState<"ITEMS" | "WAREHOUSES" | "TRANSFERS" | "KARDEX">("ITEMS");
+  const [activeTab, setActiveTab] = useState<"ITEMS" | "WAREHOUSES" | "TRANSFERS" | "KARDEX">(
+    initialTab || "ITEMS"
+  );
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   const [kardexMovements, setKardexMovements] = useState<any[]>([]);
   const [kardexLoading, setKardexLoading] = useState(false);
   const [kardexSearch, setKardexSearch] = useState("");

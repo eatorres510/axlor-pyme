@@ -119,7 +119,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       title: "Inventario & Almacén",
       roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "WAREHOUSE"],
       items: [
-        { id: "inventory", label: "Existencias & Stock", icon: Package, roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "WAREHOUSE"] },
+        { id: "inventory", label: "Existencias & Stock", icon: Package, tab: "ITEMS", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "WAREHOUSE"] },
+        { id: "inventory", label: "Kardex de Movimientos", icon: FileText, tab: "KARDEX", badge: "Kardex", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "WAREHOUSE"] },
         { id: "catalog", label: "Catálogo de Productos", icon: Boxes, tab: "PRODUCTS", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "WAREHOUSE"] },
         { id: "catalog", label: "Familias & Categorías", icon: Layers, tab: "CATEGORIES", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "WAREHOUSE"] },
         { id: "catalog", label: "Unidades de Medida", icon: Ruler, tab: "UOM", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "WAREHOUSE"] },

@@ -1066,7 +1066,19 @@ export class SalesService {
   }): Promise<void> {
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const whId = params.warehouseId || 1; // Almacén Principal
+      let whId = params.warehouseId;
+      if (!whId) {
+        try {
+          const locRes = await axelor.search("com.axelor.apps.stock.db.StockLocation", {
+            data: { _domain: `self.company.id = ${params.companyId || 13} and self.typeSelect = 1` },
+            limit: 1,
+          });
+          whId = locRes.data?.[0]?.id || 6;
+        } catch {
+          whId = 6;
+        }
+      }
+
       const validItems = (params.items || []).filter((it) => it.productId > 0 && (it.qty || 1) > 0);
       if (validItems.length === 0) return;
 
