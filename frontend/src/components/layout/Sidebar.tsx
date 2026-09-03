@@ -134,6 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT", "CASHIER"],
       items: [
         { id: "finance", label: "Cuentas por Cobrar (CxC)", icon: CreditCard, tab: "AGING", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT"] },
+        { id: "finance", label: "Recibos de Caja & Egresos", icon: Receipt, tab: "RECEIPTS", badge: "Inmutable", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT", "CASHIER"] },
         { id: "finance", label: "Estado de Cuenta por Socio", icon: FileSpreadsheet, tab: "STATEMENT", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT"] },
         { id: "treasury", label: "Cajas & Cuentas Bancarias", icon: Landmark, roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT", "CASHIER"] },
         { id: "finance", label: "Conciliación Bancaria", icon: Landmark, tab: "RECONCILIATION", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT"] },

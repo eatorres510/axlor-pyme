@@ -304,4 +304,77 @@ export const financeApi = {
     });
     return res.data.data;
   },
+
+  // --- Cobros CxC, Pagos CxP Rápidos (FIFO) & Recibos Inmutables ---
+  getPartnerPendingInvoices: async (
+    partnerId: number,
+    companyId: number,
+    type: "CUSTOMER" | "SUPPLIER" = "CUSTOMER"
+  ): Promise<{
+    partnerId: number;
+    partnerName: string;
+    partnerType: "CUSTOMER" | "SUPPLIER";
+    invoices: Array<{
+      id: number;
+      invoiceSeq: string;
+      invoiceDate: string;
+      dueDate: string;
+      inTaxTotal: number;
+      amountPaid: number;
+      amountRemaining: number;
+      daysOverdue: number;
+      notes?: string;
+    }>;
+    totalOutstanding: number;
+  }> => {
+    const res = await api.get<{ success: boolean; data: any }>(
+      `/finance/partner/${partnerId}/pending-invoices?companyId=${companyId}&type=${type}`
+    );
+    return res.data.data;
+  },
+
+  createQuickPayment: async (payload: {
+    companyId: number;
+    partnerId: number;
+    partnerName?: string;
+    partnerType: "CUSTOMER" | "SUPPLIER";
+    totalAmount: number;
+    paymentMethod: "CASH" | "BANK_TRANSFER" | "CHECK" | "CARD" | "SPEI";
+    sourceAccount: "CASH" | "BANK";
+    paymentDate?: string;
+    reference?: string;
+    notes?: string;
+    allocations: Array<{
+      invoiceId: number;
+      invoiceSeq?: string;
+      amountPaid: number;
+      previousBalance?: number;
+      newBalance?: number;
+    }>;
+  }) => {
+    const res = await api.post<{ success: boolean; message: string; data: any }>(
+      "/finance/quick-payment",
+      payload
+    );
+    return res.data;
+  },
+
+  listPaymentReceipts: async (
+    companyId: number,
+    filters?: { type?: string; partnerId?: number; q?: string }
+  ) => {
+    let url = `/finance/receipts?companyId=${companyId}`;
+    if (filters?.type && filters.type !== "ALL") url += `&type=${filters.type}`;
+    if (filters?.partnerId) url += `&partnerId=${filters.partnerId}`;
+    if (filters?.q) url += `&q=${encodeURIComponent(filters.q)}`;
+
+    const res = await api.get<{ success: boolean; data: any[] }>(url);
+    return res.data.data;
+  },
+
+  getPaymentReceipt: async (id: string | number) => {
+    const res = await api.get<{ success: boolean; data: any }>(`/finance/receipts/${id}`);
+    return res.data.data;
+  },
 };
+

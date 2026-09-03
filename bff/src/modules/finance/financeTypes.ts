@@ -26,11 +26,63 @@ export type InvoiceInput = z.infer<typeof InvoiceSchema>;
 
 export const InvoicePaymentSchema = z.object({
   amount: z.coerce.number().positive("El monto del pago debe ser mayor a 0"),
-  paymentMethod: z.enum(["CASH", "BANK", "BANK_TRANSFER", "CHECK"]).default("BANK"),
+  paymentMethod: z.enum(["CASH", "BANK", "BANK_TRANSFER", "CHECK", "SPEI", "CARD"]).default("BANK"),
   paymentDate: z.string().optional(),
   notes: z.string().optional(),
 });
 export type InvoicePaymentInput = z.infer<typeof InvoicePaymentSchema>;
+
+// --- Cobros CxC y Pagos CxP Rápidos (FIFO & Multi-Invoice) ---
+export const QuickPaymentAllocationSchema = z.object({
+  invoiceId: z.number().min(1, "El ID de factura es requerido"),
+  invoiceSeq: z.string().optional(),
+  amountPaid: z.coerce.number().positive("El monto aplicado debe ser mayor a 0"),
+  previousBalance: z.coerce.number().optional(),
+  newBalance: z.coerce.number().optional(),
+});
+export type QuickPaymentAllocation = z.infer<typeof QuickPaymentAllocationSchema>;
+
+export const QuickPaymentInputSchema = z.object({
+  companyId: z.number().min(1, "El ID de empresa es requerido"),
+  partnerId: z.number().min(1, "El ID de cliente o proveedor es requerido"),
+  partnerName: z.string().optional(),
+  partnerType: z.enum(["CUSTOMER", "SUPPLIER"]),
+  totalAmount: z.coerce.number().positive("El monto total a aplicar debe ser mayor a 0"),
+  paymentMethod: z.enum(["CASH", "BANK_TRANSFER", "CHECK", "CARD", "SPEI"]).default("CASH"),
+  sourceAccount: z.enum(["CASH", "BANK"]).default("CASH"),
+  paymentDate: z.string().optional(),
+  reference: z.string().optional(),
+  notes: z.string().optional(),
+  allocations: z.array(QuickPaymentAllocationSchema).min(1, "Debe incluir al menos una factura a saldar"),
+});
+export type QuickPaymentInput = z.infer<typeof QuickPaymentInputSchema>;
+
+export interface PaymentReceiptRecord {
+  id: string | number;
+  receiptSeq: string;
+  receiptType: "INCOME" | "EXPENSE"; // INCOME = Cobro CxC (Recibo de Caja), EXPENSE = Pago CxP (Comprobante de Egreso)
+  companyId: number;
+  partnerId: number;
+  partnerName: string;
+  partnerTaxId?: string;
+  totalAmount: number;
+  paymentMethod: string;
+  sourceAccount: string;
+  paymentDate: string;
+  reference: string;
+  notes?: string;
+  status: "PROCESSED"; // Always immutable once processed
+  moveId: number;
+  invoicesSettled: Array<{
+    invoiceId: number;
+    invoiceSeq: string;
+    amountPaid: number;
+    previousBalance: number;
+    newBalance: number;
+  }>;
+  createdAt: string;
+}
+
 
 export interface AgingBucket {
   current: number; // 0-30 días

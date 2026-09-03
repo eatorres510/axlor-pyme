@@ -25,6 +25,10 @@ import {
   HelpCircle,
   Lock,
   Unlock,
+  Receipt,
+  Printer,
+  Search,
+  Filter,
 } from "lucide-react";
 import { useCompany } from "../context/CompanyContext";
 import { catalogApi } from "../api/catalogApi";
@@ -38,6 +42,8 @@ import {
   StatementMovement,
 } from "../api/financeApi";
 import { DocumentDetailModal } from "../components/modals/DocumentDetailModal";
+import { QuickPaymentDrawer } from "../components/modals/QuickPaymentDrawer";
+import { PaymentReceiptModal } from "../components/layout/PaymentReceiptModal";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
@@ -47,12 +53,14 @@ import { Select } from "../components/ui/Select";
 import { Autocomplete, AutocompleteItem } from "../components/ui/Autocomplete";
 
 interface FinanceViewProps {
-  initialTab?: "AGING" | "STATEMENT" | "RECONCILIATION" | "PNL";
+  initialTab?: "AGING" | "RECEIPTS" | "STATEMENT" | "RECONCILIATION" | "PNL";
 }
 
 export const FinanceView: React.FC<FinanceViewProps> = ({ initialTab }) => {
   const { activeCompany } = useCompany();
-  const [activeTab, setActiveTab] = useState<"AGING" | "STATEMENT" | "RECONCILIATION" | "PNL">(initialTab || "AGING");
+  const [activeTab, setActiveTab] = useState<"AGING" | "RECEIPTS" | "STATEMENT" | "RECONCILIATION" | "PNL">(
+    initialTab || "AGING"
+  );
 
   useEffect(() => {
     if (initialTab) {
@@ -83,6 +91,19 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ initialTab }) => {
   const [payAmount, setPayAmount] = useState<string>("");
   const [payMethod, setPayMethod] = useState<"CASH" | "BANK_TRANSFER" | "CHECK">("BANK_TRANSFER");
   const [submittingPayment, setSubmittingPayment] = useState(false);
+
+  // Quick Payment & Receipts State
+  const [quickPaymentDrawerOpen, setQuickPaymentDrawerOpen] = useState(false);
+  const [quickPaymentType, setQuickPaymentType] = useState<"CUSTOMER" | "SUPPLIER">("CUSTOMER");
+  const [quickPaymentPartnerId, setQuickPaymentPartnerId] = useState<number | null>(null);
+
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
+
+  const [receiptsList, setReceiptsList] = useState<any[]>([]);
+  const [loadingReceipts, setLoadingReceipts] = useState(false);
+  const [receiptFilterType, setReceiptFilterType] = useState<string>("ALL");
+  const [receiptSearchQuery, setReceiptSearchQuery] = useState<string>("");
 
   // Credit Note / Devolución Modal
   const [creditNoteModalOpen, setCreditNoteModalOpen] = useState(false);
@@ -298,9 +319,50 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ initialTab }) => {
     }
   }, [selectedPartnerId, activeTab]);
 
+  const loadReceipts = async () => {
+    if (!activeCompany) return;
+    try {
+      setLoadingReceipts(true);
+      const data = await financeApi.listPaymentReceipts(activeCompany.id, {
+        type: receiptFilterType,
+        q: receiptSearchQuery,
+      });
+      setReceiptsList(data || []);
+    } catch (err) {
+      console.error("Error al cargar recibos:", err);
+    } finally {
+      setLoadingReceipts(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "RECEIPTS") {
+      loadReceipts();
+    }
+  }, [activeTab, receiptFilterType, receiptSearchQuery, activeCompany?.id]);
+
+  const handleOpenQuickPayment = (type: "CUSTOMER" | "SUPPLIER", partnerId?: number) => {
+    setQuickPaymentType(type);
+    setQuickPaymentPartnerId(partnerId || null);
+    setQuickPaymentDrawerOpen(true);
+  };
+
   const handleOpenPayment = (inv: AgingItem) => {
-    setSelectedInvoice(inv);
-    setPayAmount(inv.amountRemaining.toString());
+    setQuickPaymentType(reportType);
+    setQuickPaymentPartnerId(inv.partnerId);
+    setQuickPaymentDrawerOpen(true);
+  };
+
+  const handleQuickPaymentSuccess = (receipt: any) => {
+    loadData();
+    loadReceipts();
+    setSelectedReceipt(receipt);
+    setReceiptModalOpen(true);
+  };
+
+  const handleViewReceipt = (rec: any) => {
+    setSelectedReceipt(rec);
+    setReceiptModalOpen(true);
   };
 
   const handleOpenCreditNote = (inv: AgingItem) => {
@@ -373,7 +435,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ initialTab }) => {
   };
 
 const FINANCE_CONFIGS: Record<
-  "AGING" | "STATEMENT" | "RECONCILIATION" | "PNL",
+  "AGING" | "RECEIPTS" | "STATEMENT" | "RECONCILIATION" | "PNL",
   {
     title: string;
     subtitle: string;
@@ -386,6 +448,12 @@ const FINANCE_CONFIGS: Record<
     subtitle: "Cartera vencida por cubos de antigüedad (0-30d, 31-60d, 61-90d, >90d) y cobros aplicados",
     badge: "Finanzas & Contabilidad",
     badgeVariant: "primary",
+  },
+  RECEIPTS: {
+    title: "Libro de Recibos de Caja & Comprobantes de Egreso",
+    subtitle: "Historial fiscal y contable de cobros (CxC) y pagos (CxP) inmutables con comprobantes de impresión",
+    badge: "Tesorería & Caja",
+    badgeVariant: "success",
   },
   STATEMENT: {
     title: "Estado de Cuenta Individual por Socio",
@@ -434,8 +502,8 @@ const FINANCE_CONFIGS: Record<
       {/* TAB 1: AGING REPORT */}
       {activeTab === "AGING" && (
         <div className="space-y-6">
-          {/* Sub-toggle: Clientes vs Proveedores */}
-          <div className="flex items-center justify-between">
+          {/* Sub-toggle: Clientes vs Proveedores & Quick Actions */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex rounded-lg border border-slate-200 dark:border-white/10 p-0.5 bg-slate-50 dark:bg-etiserv-navyDark">
               <button
                 onClick={() => setReportType("CUSTOMER")}
@@ -458,9 +526,30 @@ const FINANCE_CONFIGS: Record<
                 Cuentas por Pagar (CxP Proveedores)
               </button>
             </div>
-            <span className="text-xs text-slate-400">
-              Generado: {new Date(report?.generatedAt || Date.now()).toLocaleTimeString()}
-            </span>
+
+            <div className="flex items-center gap-2">
+              {reportType === "CUSTOMER" ? (
+                <Button
+                  variant="success"
+                  size="sm"
+                  onClick={() => handleOpenQuickPayment("CUSTOMER")}
+                  className="gap-1.5 text-xs font-bold shadow-sm"
+                >
+                  <Zap className="w-3.5 h-3.5 fill-current" />
+                  <span>⚡ Cobro Rápido (Recibo de Caja)</span>
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => handleOpenQuickPayment("SUPPLIER")}
+                  className="gap-1.5 text-xs font-bold shadow-sm"
+                >
+                  <Zap className="w-3.5 h-3.5 fill-current" />
+                  <span>⚡ Pago a Proveedor (Comprobante de Egreso)</span>
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Aging Buckets Cards */}
@@ -582,6 +671,250 @@ const FINANCE_CONFIGS: Record<
                 </tbody>
               </table>
             </div>
+          </Card>
+        </div>
+      )}
+
+      {/* TAB: LIBRO DE RECIBOS DE CAJA & COMPROBANTES DE EGRESO */}
+      {activeTab === "RECEIPTS" && (
+        <div className="space-y-6">
+          {/* Top KPIs Summary */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="p-4 border-l-4 border-l-emerald-500">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Total Recibos de Caja (CxC)
+                </span>
+                <ArrowDownLeft className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div className="text-xl font-heading font-extrabold text-slate-900 dark:text-white mt-1 tabular-nums">
+                $
+                {receiptsList
+                  .filter((r) => r.receiptType === "INCOME")
+                  .reduce((sum, r) => sum + (r.totalAmount || 0), 0)
+                  .toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {receiptsList.filter((r) => r.receiptType === "INCOME").length} cobro(s) procesado(s)
+              </p>
+            </Card>
+
+            <Card className="p-4 border-l-4 border-l-blue-500">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Total Egresos Proveedores (CxP)
+                </span>
+                <ArrowUpRight className="w-4 h-4 text-blue-500" />
+              </div>
+              <div className="text-xl font-heading font-extrabold text-slate-900 dark:text-white mt-1 tabular-nums">
+                $
+                {receiptsList
+                  .filter((r) => r.receiptType === "EXPENSE")
+                  .reduce((sum, r) => sum + (r.totalAmount || 0), 0)
+                  .toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {receiptsList.filter((r) => r.receiptType === "EXPENSE").length} pago(s) a proveedores
+              </p>
+            </Card>
+
+            <Card className="p-4 border-l-4 border-l-purple-500">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Total Documentos Emitidos
+                </span>
+                <Receipt className="w-4 h-4 text-purple-500" />
+              </div>
+              <div className="text-xl font-heading font-extrabold text-slate-900 dark:text-white mt-1 tabular-nums">
+                {receiptsList.length}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">Recibos e Ingresos/Egresos</p>
+            </Card>
+
+            <Card className="p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60">
+              <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 text-xs font-bold uppercase tracking-wider">
+                <Lock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Control de Inmutabilidad</span>
+              </div>
+              <div className="text-xs text-emerald-900 dark:text-emerald-200 mt-1 leading-snug">
+                Todos los recibos procesados quedan sellados y blindados contra alteraciones contables.
+              </div>
+            </Card>
+          </div>
+
+          {/* Action & Filter Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* Filter Toggle */}
+            <div className="flex rounded-lg border border-slate-200 dark:border-white/10 p-0.5 bg-slate-50 dark:bg-etiserv-navyDark">
+              <button
+                onClick={() => setReceiptFilterType("ALL")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  receiptFilterType === "ALL"
+                    ? "bg-etiserv-blue text-white shadow-sm"
+                    : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                Todos ({receiptsList.length})
+              </button>
+              <button
+                onClick={() => setReceiptFilterType("INCOME")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  receiptFilterType === "INCOME"
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                Cobros de Clientes (ING)
+              </button>
+              <button
+                onClick={() => setReceiptFilterType("EXPENSE")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  receiptFilterType === "EXPENSE"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                Pagos a Proveedores (EGR)
+              </button>
+            </div>
+
+            {/* Quick Actions & Search */}
+            <div className="flex items-center gap-2">
+              <div className="relative w-48 sm:w-64">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar folio, socio, ref..."
+                  value={receiptSearchQuery}
+                  onChange={(e) => setReceiptSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-etiserv-blue"
+                />
+              </div>
+
+              <Button
+                variant="success"
+                size="sm"
+                onClick={() => handleOpenQuickPayment("CUSTOMER")}
+                className="gap-1 text-xs font-bold whitespace-nowrap shadow-sm"
+              >
+                <Zap className="w-3.5 h-3.5 fill-current" />
+                <span>Cobro CxC</span>
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => handleOpenQuickPayment("SUPPLIER")}
+                className="gap-1 text-xs font-bold whitespace-nowrap shadow-sm"
+              >
+                <Zap className="w-3.5 h-3.5 fill-current" />
+                <span>Pago CxP</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Receipts Table */}
+          <Card className="overflow-hidden">
+            {loadingReceipts ? (
+              <div className="py-16 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
+                <RefreshCw className="w-6 h-6 animate-spin text-etiserv-blue" />
+                <span className="text-xs">Cargando libro de recibos...</span>
+              </div>
+            ) : receiptsList.length === 0 ? (
+              <div className="py-12 text-center text-slate-500 text-xs">
+                No se encontraron recibos de caja o egresos con los filtros seleccionados.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-etiserv-navyDark text-slate-400 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200 dark:border-white/10">
+                    <tr>
+                      <th className="py-3 px-4">Folio Oficial</th>
+                      <th className="py-3 px-4">Fecha</th>
+                      <th className="py-3 px-4">Tipo</th>
+                      <th className="py-3 px-4">Socio Comercial</th>
+                      <th className="py-3 px-4">Método / Cuenta</th>
+                      <th className="py-3 px-4">Póliza Axelor</th>
+                      <th className="py-3 px-4 text-right">Importe Total</th>
+                      <th className="py-3 px-4 text-center">Estado</th>
+                      <th className="py-3 px-4 text-center">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                    {receiptsList.map((rec) => {
+                      const isInc = rec.receiptType === "INCOME";
+                      return (
+                        <tr
+                          key={rec.id}
+                          className="hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition-colors"
+                        >
+                          <td className="py-3 px-4 font-mono font-bold text-etiserv-blue dark:text-blue-400">
+                            {rec.receiptSeq}
+                          </td>
+                          <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
+                            {rec.paymentDate}
+                          </td>
+                          <td className="py-3 px-4">
+                            <Badge variant={isInc ? "success" : "info"} className="gap-1 text-[10px]">
+                              {isInc ? (
+                                <>
+                                  <ArrowDownLeft className="w-3 h-3" /> Cobro CxC
+                                </>
+                              ) : (
+                                <>
+                                  <ArrowUpRight className="w-3 h-3" /> Pago CxP
+                                </>
+                              )}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="font-semibold text-slate-900 dark:text-white">
+                              {rec.partnerName}
+                            </div>
+                            {rec.reference && (
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                Ref: {rec.reference}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-600 dark:text-slate-300">
+                            <div className="flex items-center gap-1 font-medium">
+                              <CreditCard className="w-3 h-3 text-slate-400" />
+                              <span>{rec.paymentMethod}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              {rec.sourceAccount || "Caja / Banco"}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">
+                            #{rec.moveId}
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold text-slate-900 dark:text-white tabular-nums text-sm">
+                            ${Number(rec.totalAmount).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                              <Lock className="w-2.5 h-2.5" />
+                              <span>Inmutable</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewReceipt(rec)}
+                              className="gap-1 text-[10px] py-1 px-2.5 shadow-sm"
+                            >
+                              <Printer className="w-3 h-3" />
+                              <span>Ver / Imprimir</span>
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
         </div>
       )}
@@ -1745,6 +2078,29 @@ const FINANCE_CONFIGS: Record<
         companyTaxId={activeCompany?.taxId || "DNP180520AB1"}
         currencySymbol="$"
       />
+
+      {/* Quick Payment / Multi-Invoice FIFO Drawer */}
+      <QuickPaymentDrawer
+        isOpen={quickPaymentDrawerOpen}
+        onClose={() => {
+          setQuickPaymentDrawerOpen(false);
+          setQuickPaymentPartnerId(null);
+        }}
+        type={quickPaymentType}
+        initialPartnerId={quickPaymentPartnerId}
+        onSuccess={handleQuickPaymentSuccess}
+      />
+
+      {/* Official Printable Cash Receipt & Expense Voucher Modal */}
+      <PaymentReceiptModal
+        isOpen={receiptModalOpen}
+        onClose={() => {
+          setReceiptModalOpen(false);
+          setSelectedReceipt(null);
+        }}
+        receipt={selectedReceipt}
+      />
     </div>
   );
 };
+

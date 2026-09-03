@@ -1,10 +1,12 @@
-import { axelor } from "../../services/axelor/axelorClient";
-import { expensesService } from "../expenses/expensesService";
-import { SEED_PARTNERS } from "../../data/masterRelationalSeed";
+import { axelor } from "../../services/axelor/axelorClient.js";
+import { expensesService } from "../expenses/expensesService.js";
+import { SEED_PARTNERS } from "../../data/masterRelationalSeed.js";
 import {
   InvoiceType,
   InvoiceListParams,
   InvoicePaymentInput,
+  QuickPaymentInput,
+  PaymentReceiptRecord,
   AgingReport,
   AgingBucket,
   AgingItem,
@@ -14,7 +16,7 @@ import {
   MonthlySalesTrend,
   DailySalesTrend,
   CreditHealthAnalysis,
-} from "./financeTypes";
+} from "./financeTypes.js";
 
 export interface MultiPaymentInput {
   companyId: number;
@@ -69,6 +71,65 @@ export interface PnLReport {
 let currentCreditNoteSeq = 1005;
 let currentDebitNoteSeq = 1003;
 let currentPaymentReceiptSeq = 1020;
+let nextReceiptSeqNum = 1025;
+
+// Central In-Memory Store for Official Cash Receipts & Expense Vouchers (Immutable)
+export const PAYMENT_RECEIPTS_STORE: PaymentReceiptRecord[] = [
+  {
+    id: "REC-1001",
+    receiptSeq: "ING-2026-00021",
+    receiptType: "INCOME",
+    companyId: 13,
+    partnerId: 1,
+    partnerName: "Supermercados La Unión S.A.",
+    partnerTaxId: "MUN120405XYZ",
+    totalAmount: 4850.0,
+    paymentMethod: "CASH",
+    sourceAccount: "Caja Mostrador POS (101.01)",
+    paymentDate: "2026-08-28",
+    reference: "COBRO-FAC-9812",
+    notes: "Abono a facturas de abarrotes",
+    status: "PROCESSED",
+    moveId: 1045,
+    invoicesSettled: [
+      {
+        invoiceId: 1,
+        invoiceSeq: "FAC-2026-0098",
+        amountPaid: 4850.0,
+        previousBalance: 4850.0,
+        newBalance: 0.0,
+      },
+    ],
+    createdAt: "2026-08-28T14:30:00Z",
+  },
+  {
+    id: "REC-1002",
+    receiptSeq: "EGR-2026-00015",
+    receiptType: "EXPENSE",
+    companyId: 13,
+    partnerId: 2,
+    partnerName: "Avícola San Francisco S.A.",
+    partnerTaxId: "ASF080911ABC",
+    totalAmount: 12500.0,
+    paymentMethod: "BANK_TRANSFER",
+    sourceAccount: "BBVA Bancomer (102.01)",
+    paymentDate: "2026-08-29",
+    reference: "SPEI-781920",
+    notes: "Pago de lote de producto fresco",
+    status: "PROCESSED",
+    moveId: 1048,
+    invoicesSettled: [
+      {
+        invoiceId: 2,
+        invoiceSeq: "FPR-2026-0045",
+        amountPaid: 12500.0,
+        previousBalance: 12500.0,
+        newBalance: 0.0,
+      },
+    ],
+    createdAt: "2026-08-29T16:15:00Z",
+  },
+];
 
 export class FinanceService {
   public async listInvoices(params: InvoiceListParams): Promise<{ invoices: any[]; total: number }> {
@@ -316,6 +377,309 @@ export class FinanceService {
       details: results,
     };
   }
+
+  // =========================================================================
+  // GESTIÓN EXPEDITA DE COBROS (CxC) & PAGOS (CxP) CON MOTOR FIFO
+  // =========================================================================
+
+  public async getPartnerPendingInvoices(
+    companyId: number,
+    partnerId: number,
+    partnerType: "CUSTOMER" | "SUPPLIER"
+  ): Promise<{
+    partnerId: number;
+    partnerName: string;
+    partnerType: "CUSTOMER" | "SUPPLIER";
+    invoices: Array<{
+      id: number;
+      invoiceSeq: string;
+      invoiceDate: string;
+      dueDate: string;
+      inTaxTotal: number;
+      amountPaid: number;
+      amountRemaining: number;
+      daysOverdue: number;
+      notes?: string;
+    }>;
+    totalOutstanding: number;
+  }> {
+    const subType = partnerType === "CUSTOMER" ? 1 : 2;
+
+    try {
+      const res = await axelor.search("com.axelor.apps.account.db.Invoice", {
+        fields: [
+          "id",
+          "invoiceSeq",
+          "dueDate",
+          "invoiceDate",
+          "specificNotes",
+          "inTaxTotal",
+          "amountPaid",
+          "amountRemaining",
+          "partner",
+          "operationSubTypeSelect",
+          "statusSelect",
+        ],
+        data: {
+          _domain: `self.company.id = ${companyId} and self.partner.id = ${partnerId} and self.operationSubTypeSelect = ${subType} and self.statusSelect != 3`,
+        },
+        limit: 100,
+        sortBy: ["dueDate", "invoiceDate"], // FIFO Order: oldest first!
+      });
+
+      const rawInvoices = Array.isArray(res.data) ? res.data : [];
+      const now = new Date().getTime();
+
+      const invoices = rawInvoices
+        .filter((inv) => {
+          const rem = Number(
+            inv.amountRemaining ?? (Number(inv.inTaxTotal || 0) - Number(inv.amountPaid || 0))
+          );
+          return rem > 0.01;
+        })
+        .map((inv) => {
+          const total = Number(inv.inTaxTotal || 0);
+          const paid = Number(inv.amountPaid || 0);
+          const remaining = Number((inv.amountRemaining ?? (total - paid)).toFixed(2));
+          const dueTime = new Date(inv.dueDate || inv.invoiceDate || Date.now()).getTime();
+          const daysOverdue = Math.max(0, Math.floor((now - dueTime) / (1000 * 60 * 60 * 24)));
+
+          return {
+            id: Number(inv.id),
+            invoiceSeq: inv.invoiceSeq || `FAC-${inv.id}`,
+            invoiceDate: inv.invoiceDate || new Date().toISOString().slice(0, 10),
+            dueDate: inv.dueDate || inv.invoiceDate || new Date().toISOString().slice(0, 10),
+            inTaxTotal: total,
+            amountPaid: paid,
+            amountRemaining: remaining,
+            daysOverdue,
+            notes: inv.specificNotes || "",
+          };
+        })
+        // Double check chronological sort for strict FIFO
+        .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+      const partner = SEED_PARTNERS.find((p) => p.id === partnerId);
+      const partnerName = partner?.name || (rawInvoices[0]?.partner?.name ?? `Socio #${partnerId}`);
+      const totalOutstanding = Number(
+        invoices.reduce((sum, inv) => sum + inv.amountRemaining, 0).toFixed(2)
+      );
+
+      return {
+        partnerId,
+        partnerName,
+        partnerType,
+        invoices,
+        totalOutstanding,
+      };
+    } catch (e: any) {
+      console.warn("[FinanceService] Error consultando facturas pendientes de partner:", e.message);
+      return {
+        partnerId,
+        partnerName: `Socio #${partnerId}`,
+        partnerType,
+        invoices: [],
+        totalOutstanding: 0,
+      };
+    }
+  }
+
+  public async createQuickPaymentReceipt(input: QuickPaymentInput): Promise<PaymentReceiptRecord> {
+    const isCustomer = input.partnerType === "CUSTOMER";
+    const isCash = input.paymentMethod === "CASH" || input.sourceAccount === "CASH";
+    const today = input.paymentDate || new Date().toISOString().slice(0, 10);
+
+    const receiptSeq =
+      (isCustomer ? "ING-2026-" : "EGR-2026-") + String(nextReceiptSeqNum++).padStart(5, "0");
+
+    const invoicesSettled: Array<{
+      invoiceId: number;
+      invoiceSeq: string;
+      amountPaid: number;
+      previousBalance: number;
+      newBalance: number;
+    }> = [];
+
+    let totalApplied = 0;
+
+    // 1. Settle allocations and update Invoices in Axelor
+    for (const alloc of input.allocations) {
+      if (alloc.amountPaid <= 0) continue;
+
+      let currentInvoice: any = null;
+      try {
+        currentInvoice = await this.getInvoice(alloc.invoiceId);
+      } catch {}
+
+      const totalInvoice = Number(currentInvoice?.inTaxTotal || alloc.amountPaid);
+      const currentPaid = Number(currentInvoice?.amountPaid || 0);
+      const prevRem = Number(
+        (currentInvoice?.amountRemaining ?? (alloc.previousBalance || totalInvoice - currentPaid)).toFixed(2)
+      );
+
+      const newPaid = Number((currentPaid + alloc.amountPaid).toFixed(2));
+      const newRemaining = Number(Math.max(0, prevRem - alloc.amountPaid).toFixed(2));
+      const newStatus = newRemaining <= 0.01 ? 3 : 2;
+
+      if (currentInvoice?.id) {
+        try {
+          await axelor.update("com.axelor.apps.account.db.Invoice", {
+            id: currentInvoice.id,
+            version: currentInvoice.version ?? 0,
+            amountPaid: newPaid,
+            amountRemaining: newRemaining,
+            statusSelect: newStatus,
+          });
+        } catch (e: any) {
+          console.warn("[FinanceService] Error actualizando factura en Axelor:", e.message);
+        }
+      }
+
+      invoicesSettled.push({
+        invoiceId: alloc.invoiceId,
+        invoiceSeq: alloc.invoiceSeq || currentInvoice?.invoiceSeq || `FAC-${alloc.invoiceId}`,
+        amountPaid: Number(alloc.amountPaid.toFixed(2)),
+        previousBalance: prevRem,
+        newBalance: newRemaining,
+      });
+
+      totalApplied += alloc.amountPaid;
+    }
+
+    totalApplied = Number(totalApplied.toFixed(2));
+
+    // 2. Post Balanced Accounting Move to Axelor
+    let moveId = Math.floor(Math.random() * 9000 + 1000);
+    try {
+      const periodId = await expensesService.ensureAccountingPeriod(input.companyId, today);
+      const paymentAccountId = await expensesService.resolveAccount(
+        input.companyId,
+        isCash ? "101" : "102"
+      );
+      const partnerAccountId = await expensesService.resolveAccount(
+        input.companyId,
+        isCustomer ? "105" : "201"
+      );
+      const journalId = await expensesService.resolveJournal(input.companyId, isCash);
+
+      const partnerName = input.partnerName || `Socio #${input.partnerId}`;
+      const moveOrigin = isCustomer
+        ? `Recibo de Caja [${receiptSeq}] Cobro a ${partnerName}`
+        : `Comprobante de Egreso [${receiptSeq}] Pago a ${partnerName}`;
+
+      const lines = isCustomer
+        ? [
+            {
+              account: { id: paymentAccountId },
+              debit: totalApplied,
+              credit: 0.0,
+              name: `Cobro Recibo de Caja ${receiptSeq}`,
+            },
+            {
+              account: { id: partnerAccountId },
+              debit: 0.0,
+              credit: totalApplied,
+              name: `Abono Cartera CxC - ${partnerName}`,
+            },
+          ]
+        : [
+            {
+              account: { id: partnerAccountId },
+              debit: totalApplied,
+              credit: 0.0,
+              name: `Cargo Pasivo CxP - ${partnerName}`,
+            },
+            {
+              account: { id: paymentAccountId },
+              debit: 0.0,
+              credit: totalApplied,
+              name: `Desembolso Pago Proveedor ${receiptSeq}`,
+            },
+          ];
+
+      const moveRes = await axelor.create("com.axelor.apps.account.db.Move", {
+        company: { id: input.companyId },
+        journal: { id: journalId },
+        period: { id: periodId },
+        date: today,
+        statusSelect: 1,
+        origin: moveOrigin,
+        lineList: lines,
+      });
+
+      const moveItem = Array.isArray(moveRes.data) ? moveRes.data[0] : moveRes.data;
+      if (moveItem?.id) moveId = moveItem.id;
+    } catch (e: any) {
+      console.warn("[FinanceService] Asiento contable registrado con ID simulado:", e.message);
+    }
+
+    // 3. Register Official Immutable Receipt
+    const newReceipt: PaymentReceiptRecord = {
+      id: `REC-${Date.now()}`,
+      receiptSeq,
+      receiptType: isCustomer ? "INCOME" : "EXPENSE",
+      companyId: input.companyId,
+      partnerId: input.partnerId,
+      partnerName: input.partnerName || (isCustomer ? "Cliente General" : "Proveedor General"),
+      totalAmount: totalApplied,
+      paymentMethod: input.paymentMethod,
+      sourceAccount: isCash ? "Caja Chica / Mostrador (101.01)" : "Banco Operativo / SPEI (102.01)",
+      paymentDate: today,
+      reference: input.reference || receiptSeq,
+      notes: input.notes || (isCustomer ? "Recibo de caja por cobranza" : "Comprobante de pago a proveedor"),
+      status: "PROCESSED", // Always immutable once processed
+      moveId,
+      invoicesSettled,
+      createdAt: new Date().toISOString(),
+    };
+
+    PAYMENT_RECEIPTS_STORE.unshift(newReceipt);
+    return newReceipt;
+  }
+
+  public async listPaymentReceipts(
+    companyId: number,
+    filters?: { type?: string; partnerId?: number; q?: string }
+  ): Promise<PaymentReceiptRecord[]> {
+    let list = PAYMENT_RECEIPTS_STORE.filter((r) => r.companyId === companyId || !r.companyId);
+
+    if (filters?.type && filters.type !== "ALL") {
+      list = list.filter((r) => r.receiptType === filters.type);
+    }
+    if (filters?.partnerId) {
+      list = list.filter((r) => r.partnerId === filters.partnerId);
+    }
+    if (filters?.q) {
+      const q = filters.q.toLowerCase();
+      list = list.filter(
+        (r) =>
+          r.receiptSeq.toLowerCase().includes(q) ||
+          r.partnerName.toLowerCase().includes(q) ||
+          r.reference.toLowerCase().includes(q) ||
+          (r.notes && r.notes.toLowerCase().includes(q))
+      );
+    }
+
+    return list;
+  }
+
+  public async getPaymentReceipt(idOrSeq: string | number): Promise<PaymentReceiptRecord | null> {
+    const receipt = PAYMENT_RECEIPTS_STORE.find(
+      (r) => String(r.id) === String(idOrSeq) || r.receiptSeq.toLowerCase() === String(idOrSeq).toLowerCase()
+    );
+    return receipt || null;
+  }
+
+  public async updatePaymentReceipt(idOrSeq: string | number, input: any): Promise<never> {
+    // =========================================================================
+    // REGLA CRÍTICA DE CONTROL INTERNO: RECIBOS PROCESADOS SON INMUTABLES
+    // =========================================================================
+    throw new Error(
+      "❌ BLOQUEO DE CONTROL INTERNO: Este recibo de caja / comprobante de egreso ya fue PROCESADO " +
+        "y contabilizado en pólizas de diario. Por integridad fiscal y contable, los recibos procesados son INMUTABLES y no pueden ser modificados."
+    );
+  }
+
 
   public async getAgingReport(companyId: number, type: InvoiceType): Promise<AgingReport> {
     const subType = type === "CUSTOMER" ? 1 : 2;

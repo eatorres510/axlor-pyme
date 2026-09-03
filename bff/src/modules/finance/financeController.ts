@@ -1,11 +1,12 @@
 import { Router, Request, Response } from "express";
-import { financeService } from "./financeService";
+import { financeService } from "./financeService.js";
 import {
   InvoiceListParamsSchema,
   InvoicePaymentSchema,
   CreditNoteSchema,
-} from "./financeTypes";
-import { verifyJWT, tenantGuard, AuthenticatedRequest } from "../auth/authMiddleware";
+  QuickPaymentInputSchema,
+} from "./financeTypes.js";
+import { verifyJWT, tenantGuard, AuthenticatedRequest } from "../auth/authMiddleware.js";
 
 export const financeRouter = Router();
 
@@ -315,3 +316,84 @@ financeRouter.post("/invoices/:id/debit-note", async (req: AuthenticatedRequest,
     res.status(400).json({ success: false, error: err.message });
   }
 });
+
+// =========================================================================
+// COBROS (CxC), PAGOS (CxP) RÁPIDOS & RECIBOS INMUTABLES
+// =========================================================================
+
+// GET /api/finance/partner/:partnerId/pending-invoices (FIFO Pending Invoices)
+financeRouter.get("/partner/:partnerId/pending-invoices", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const partnerId = parseInt(req.params.partnerId, 10);
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : req.user?.activeCompanyId || 13;
+    const partnerType = ((req.query.type as string) || "CUSTOMER") as "CUSTOMER" | "SUPPLIER";
+
+    const result = await financeService.getPartnerPendingInvoices(companyId, partnerId, partnerType);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/finance/quick-payment (Cobro CxC o Pago CxP Multifactura)
+financeRouter.post("/quick-payment", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const parse = QuickPaymentInputSchema.safeParse(req.body);
+    if (!parse.success) {
+      res.status(400).json({
+        success: false,
+        error: "Datos de cobro/pago inválidos",
+        details: parse.error.flatten(),
+      });
+      return;
+    }
+    const receipt = await financeService.createQuickPaymentReceipt(parse.data);
+    res.status(201).json({
+      success: true,
+      message: `Recibo ${receipt.receiptSeq} emitido y contabilizado exitosamente`,
+      data: receipt,
+    });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/finance/receipts (Listado de Recibos de Caja & Egresos)
+financeRouter.get("/receipts", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : req.user?.activeCompanyId || 13;
+    const type = req.query.type as string | undefined;
+    const partnerId = req.query.partnerId ? parseInt(req.query.partnerId as string, 10) : undefined;
+    const q = req.query.q as string | undefined;
+
+    const receipts = await financeService.listPaymentReceipts(companyId, { type, partnerId, q });
+    res.json({ success: true, data: receipts });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/finance/receipts/:id (Detalle de Recibo de Caja o Egreso)
+financeRouter.get("/receipts/:id", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const receipt = await financeService.getPaymentReceipt(req.params.id);
+    if (!receipt) {
+      res.status(404).json({ success: false, error: "Recibo no encontrado" });
+      return;
+    }
+    res.json({ success: true, data: receipt });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/finance/receipts/:id (Bloqueo de Inmutabilidad)
+financeRouter.put("/receipts/:id", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await financeService.updatePaymentReceipt(req.params.id, req.body);
+  } catch (err: any) {
+    // 400 Bad Request with the strict immutability protection message
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
