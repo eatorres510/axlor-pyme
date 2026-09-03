@@ -19,6 +19,7 @@ import {
   PieChart,
   Boxes,
   Coins,
+  Calendar,
   ChevronLeft,
   ChevronRight,
   Search,
@@ -145,6 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT"],
       items: [
         { id: "payroll", label: "Directorio de Empleados", icon: Users, tab: "EMPLOYEES", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT"] },
+        { id: "payroll", label: "Periodos de Nómina", icon: Calendar, tab: "PERIODS", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT"] },
         { id: "payroll", label: "Anticipos de Sueldo", icon: Coins, tab: "ADVANCES", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT"] },
         { id: "payroll", label: "Planilla & Dispersión", icon: Receipt, tab: "RUNS", roles: ["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "ACCOUNTANT"] },
       ],
