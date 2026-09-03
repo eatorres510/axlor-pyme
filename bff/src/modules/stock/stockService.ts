@@ -182,22 +182,18 @@ export class StockService {
       let whCritical = 0;
       let whSkus = 0;
 
-      const items: ProductStockValuationItem[] = products.map((p: any, pIdx: number) => {
-        // Base starting inventory baseline (seed or initial count)
-        const baseQty = 120 + ((pIdx * 37 + locIdx * 23) % 180);
-        const baselineStock = Math.max(8, Math.round(baseQty * weight));
-
-        // Net movement delta (Inflows - Outflows)
+      const items: ProductStockValuationItem[] = products.map((p: any) => {
+        // Net movement delta (Inflows - Outflows) from Axelor StockMoveLines
         const deltaMoves = warehouseStockMap[loc.id]?.[p.id] || 0;
 
-        // Current real stock = baseline + all movements
-        const stock = Math.max(0, baselineStock + deltaMoves);
+        // Current real stock = deltaMoves (starts at 0 for new products)
+        const stock = Math.max(0, deltaMoves);
 
         const cost = Number(p.costPrice || 12.0);
         const sale = Number(p.salePrice || cost * 1.6);
-        const minStock = Number(p.minStock || 20);
+        const minStock = Number(p.minStock || 0);
         const maxStock = Number(p.maxStock || 200);
-        const isLow = stock <= minStock;
+        const isLow = minStock > 0 && stock <= minStock;
 
         const totalCostValue = Number((stock * cost).toFixed(2));
         const totalSaleValue = Number((stock * sale).toFixed(2));
@@ -608,9 +604,8 @@ export class StockService {
       console.warn("[StockService] Error fetching product moves:", e.message);
     }
 
-    // 3. Compute baseline starting inventory
-    const baseStartingStock = 75; // Baseline seed
-    let runningBalance = baseStartingStock;
+    // 3. Compute real inventory based strictly on Axelor stock movements
+    let runningBalance = 0;
     let totalInflows = 0;
     let totalOutflows = 0;
 
@@ -627,7 +622,7 @@ export class StockService {
       let typeCode = "OUTFLOW";
 
       if (typeSelect === 1) {
-        typeLabel = "Entrada por Compra / Ajuste";
+        typeLabel = "Entrada por Compra / Recepción";
         typeCode = "INFLOW";
         inflowQty = qty;
         totalInflows += qty;
@@ -646,9 +641,19 @@ export class StockService {
       } else if (typeSelect === 3) {
         typeLabel = "Traslado entre Bodegas";
         typeCode = "TRANSFER";
-        outflowQty = qty;
-        totalOutflows += qty;
-        runningBalance -= qty;
+        if (warehouseId && warehouseId > 0) {
+          const fromLocId = m.fromStockLocation?.id;
+          const toLocId = m.toStockLocation?.id;
+          if (toLocId === warehouseId) {
+            inflowQty = qty;
+            totalInflows += qty;
+            runningBalance += qty;
+          } else if (fromLocId === warehouseId) {
+            outflowQty = qty;
+            totalOutflows += qty;
+            runningBalance -= qty;
+          }
+        }
       } else {
         outflowQty = qty;
         totalOutflows += qty;
@@ -664,7 +669,7 @@ export class StockService {
         typeSelect,
         typeLabel,
         typeCode,
-        warehouseName: m.fromStockLocation?.name || "Almacén Principal",
+        warehouseName: m.toStockLocation?.name || m.fromStockLocation?.name || "Almacén Principal",
         inflowQty,
         outflowQty,
         unitPrice,
@@ -677,7 +682,7 @@ export class StockService {
     const currentStock = Math.max(0, runningBalance);
     const totalCostValuation = Number((currentStock * costPrice).toFixed(2));
     const totalSaleValuation = Number((currentStock * salePrice).toFixed(2));
-    const isLowStock = currentStock <= minStock;
+    const isLowStock = minStock > 0 && currentStock <= minStock;
 
     return {
       product: {
@@ -693,7 +698,7 @@ export class StockService {
         maxStock,
       },
       summary: {
-        initialStock: baseStartingStock,
+        initialStock: 0,
         totalInflows,
         totalOutflows,
         currentStock,
