@@ -100,8 +100,8 @@ export const StockAdjustmentSchema = z
     productId: z.coerce.number().min(1, "El ID del producto es requerido"),
     productName: z.string().optional(),
     productCode: z.string().optional(),
-    physicalQty: z.coerce.number().optional(),
-    adjustedQty: z.coerce.number().optional(),
+    physicalQty: z.coerce.number().min(0, "La cantidad física no puede ser negativa (mínimo 0)").optional(),
+    adjustedQty: z.coerce.number().min(0, "La cantidad física no puede ser negativa (mínimo 0)").optional(),
     reason: z.string().optional().default("PHYSICAL_COUNT_SURPLUS"),
     notes: z.string().optional(),
     responsibleName: z.string().optional(),
@@ -122,13 +122,14 @@ export const StockAdjustmentSchema = z
       productId: data.productId,
       productName: data.productName || "Producto",
       productCode: data.productCode,
-      physicalQty,
+      physicalQty: Math.max(0, physicalQty),
       reason: data.reason || "PHYSICAL_COUNT_SURPLUS",
       notes,
       responsibleName: data.responsibleName || "Responsable de Almacén",
     };
   })
-  .refine((data) => data.warehouseId > 0, { message: "El almacén es requerido" });
+  .refine((data) => data.warehouseId > 0, { message: "El almacén es requerido" })
+  .refine((data) => data.physicalQty >= 0, { message: "La cantidad física no puede ser negativa" });
 
 export type StockAdjustmentInput = z.infer<typeof StockAdjustmentSchema>;
 

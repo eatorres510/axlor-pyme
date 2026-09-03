@@ -2358,14 +2358,19 @@ export const InventoryView: React.FC<{ initialTab?: "ITEMS" | "WAREHOUSES" | "TR
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
-                  Nueva Cantidad Física en Existencia (Conteo Real):
-                </label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block font-bold text-slate-700 dark:text-slate-200">
+                    Nueva Cantidad Física en Existencia (Conteo Real):
+                  </label>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    Mínimo: 0 {adjustItem.uomCode || "PZA"}
+                  </span>
+                </div>
                 <input
                   type="number"
                   min="0"
                   value={adjustQty}
-                  onChange={(e) => setAdjustQty(parseInt(e.target.value, 10) || 0)}
+                  onChange={(e) => setAdjustQty(Math.max(0, parseInt(e.target.value, 10) || 0))}
                   className="w-full px-3 py-2 text-base font-mono font-bold rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#071C33] text-slate-900 dark:text-white focus:ring-1 focus:ring-etiserv-blue"
                   required
                 />
@@ -2388,6 +2393,11 @@ export const InventoryView: React.FC<{ initialTab?: "ITEMS" | "WAREHOUSES" | "TR
                     {isPositive ? "+" : isNegative ? "-" : ""}${impactValue.toFixed(2)} MXN
                   </strong>
                 </div>
+                {isNegative && (
+                  <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-200/40 dark:border-white/5 flex items-center gap-1">
+                    <span>🛡️ Control de Stock: Salida de {Math.abs(delta)} de {prevStock} pzas disponibles (Existencia final: {newQty} pzas).</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -2439,6 +2449,7 @@ export const InventoryView: React.FC<{ initialTab?: "ITEMS" | "WAREHOUSES" | "TR
                   size="sm"
                   type="submit"
                   loading={adjustLoading}
+                  disabled={adjustQty < 0 || isNaN(adjustQty)}
                   className="gap-1.5 font-bold shadow-sm"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />

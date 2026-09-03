@@ -481,8 +481,17 @@ export class StockService {
 
     // 4. Calcular delta matemático: Δ = Conteo Físico - Existencia Teórica
     const physicalQty = Number(input.physicalQty);
+    if (isNaN(physicalQty) || physicalQty < 0) {
+      throw new Error(`❌ BLOQUEO DE CONTROL INTERNO: La existencia física no puede ser negativa (${physicalQty}). La existencia mínima permitida es 0.`);
+    }
+
     const delta = physicalQty - previousStock;
     const absDelta = Math.abs(delta);
+
+    // Regla de Control de Inventario: El ajuste de salida no puede superar la existencia real disponible
+    if (delta < 0 && absDelta > previousStock) {
+      throw new Error(`❌ BLOQUEO DE STOCK: No se puede dar salida a más unidades (${absDelta} pzas) de las que existen realmente en el almacén (${previousStock} pzas). La existencia resultante no puede ser negativa.`);
+    }
 
     // Consecutivo oficial de vale
     const voucherIndex = ADJUSTMENTS_STORE.length + 1001;
