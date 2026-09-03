@@ -3,11 +3,54 @@ import {
   StockLocationInput,
   StockTransferInput,
   StockAdjustmentInput,
+  StockAdjustmentRecord,
+  StockAdjustmentReason,
   InventoryValuationSummary,
   WarehouseValuation,
   ProductStockValuationItem,
 } from "./stockTypes.js";
 import { SEED_WAREHOUSES, SEED_PRODUCTS } from "../../data/masterRelationalSeed.js";
+
+export const ADJUSTMENT_REASON_LABELS: Record<string, string> = {
+  INITIAL_INVENTORY: "Inventario Inicial de Apertura",
+  PHYSICAL_COUNT_SURPLUS: "Sobrante en Conteo Físico (+)",
+  PHYSICAL_COUNT_SHORTAGE: "Faltante en Conteo Físico (-)",
+  DAMAGED_WASTE: "Merma / Producto Dañado (-)",
+  EXPIRED: "Caducidad / Producto Vencido (-)",
+  INTERNAL_CONSUMPTION: "Consumo / Uso Interno (-)",
+  THEFT_LOSS: "Pérdida por Robo o Extravío (-)",
+  ENTRY_ERROR: "Corrección de Error de Captura",
+  OTHER: "Ajuste Extraordinario de Inventario",
+};
+
+export const ADJUSTMENTS_STORE: StockAdjustmentRecord[] = [
+  {
+    id: "ADJ-1001",
+    voucherSeq: "AJU-2026-01001",
+    date: "2026-09-01",
+    companyId: 13,
+    warehouseId: 6,
+    warehouseName: "Almacén Principal",
+    warehouseCode: "ALM-PRINCIPAL",
+    productId: 1,
+    productName: "Agua Mineral 600ml",
+    productCode: "7501055312345",
+    categoryName: "Bebidas y Refrescos",
+    uomCode: "PZA",
+    previousStock: 0,
+    physicalQty: 50,
+    deltaQty: 50,
+    adjustmentType: "INFLOW",
+    unitCost: 8.0,
+    totalImpactValue: 400.0,
+    reason: "INITIAL_INVENTORY",
+    reasonLabel: "Inventario Inicial de Apertura",
+    notes: "Carga de saldo inicial por apertura de sistema",
+    stockMoveId: 8101,
+    responsibleName: "Auditoría de Inventarios",
+    status: "APPLIED",
+  },
+];
 
 export class StockService {
   // ==========================================
@@ -373,50 +416,181 @@ export class StockService {
   }
 
   // ==========================================
-  // AJUSTES DE INVENTARIO
+  // AJUSTES DE INVENTARIO (AXELOR BACKED)
   // ==========================================
 
-  public async adjustStock(input: StockAdjustmentInput): Promise<{
-    success: boolean;
-    stockMoveId: number;
-    productId: number;
-    physicalQty: number;
-    timestamp: string;
-  }> {
+  public async adjustStock(input: StockAdjustmentInput): Promise<StockAdjustmentRecord> {
     const today = new Date().toISOString().slice(0, 10);
-    const prodName = input.productName || "Producto";
 
-    const moveLines = [
-      {
-        product: { id: input.productId },
-        productName: prodName,
-        qty: input.physicalQty,
+    // 1. Consultar metadatos del producto en Axelor
+    let prod: any = null;
+    try {
+      prod = await axelor.fetch("com.axelor.apps.base.db.Product", input.productId);
+    } catch (e: any) {
+      console.warn("[StockService] Error fetching product for adjustment:", e.message);
+    }
+
+    const prodName = prod?.name || prod?.fullName || input.productName || "Producto";
+    const prodCode = prod?.code || input.productCode || `SKU-${input.productId}`;
+    const categoryName = prod?.productCategory?.name || prod?.category?.name || "General";
+    const uomCode = prod?.unit?.code || "PZA";
+    const costPrice = Number(prod?.costPrice || prod?.purchasePrice || 12.0);
+
+    // 2. Consultar almacén en Axelor
+    let warehouseName = "Almacén Principal";
+    let warehouseCode = `ALM-${input.warehouseId}`;
+    try {
+      const loc = await axelor.fetch("com.axelor.apps.stock.db.StockLocation", input.warehouseId);
+      if (loc) {
+        warehouseName = loc.name || warehouseName;
+        warehouseCode = loc.code || warehouseCode;
+      }
+    } catch {}
+
+    // 3. Consultar existencia teórica actual en Axelor para este producto y almacén
+    let previousStock = 0;
+    try {
+      const domain = `self.product.id = ${input.productId} and self.stockMove.statusSelect = 2 and (self.fromStockLocation.id = ${input.warehouseId} or self.toStockLocation.id = ${input.warehouseId})`;
+      const movesRes = await axelor.search("com.axelor.apps.stock.db.StockMoveLine", {
+        data: { _domain: domain },
+        fields: ["qty", "stockMove.typeSelect", "fromStockLocation", "toStockLocation"],
+        limit: 1000,
+      });
+
+      const moves = Array.isArray(movesRes.data) ? movesRes.data : [];
+      let netStock = 0;
+      for (const m of moves) {
+        const qty = Number(m.qty || 0);
+        const moveType = (m as any)["stockMove.typeSelect"] ?? m.stockMove?.typeSelect;
+        const fromLocId = m.fromStockLocation?.id;
+        const toLocId = m.toStockLocation?.id;
+
+        if (moveType === 1) {
+          netStock += qty;
+        } else if (moveType === 2) {
+          netStock -= qty;
+        } else if (moveType === 3) {
+          if (toLocId === input.warehouseId) netStock += qty;
+          else if (fromLocId === input.warehouseId) netStock -= qty;
+        }
+      }
+      previousStock = Math.max(0, netStock);
+    } catch (e: any) {
+      console.warn("[StockService] Error fetching previous stock from Axelor:", e.message);
+    }
+
+    // 4. Calcular delta matemático: Δ = Conteo Físico - Existencia Teórica
+    const physicalQty = Number(input.physicalQty);
+    const delta = physicalQty - previousStock;
+    const absDelta = Math.abs(delta);
+
+    // Consecutivo oficial de vale
+    const voucherIndex = ADJUSTMENTS_STORE.length + 1001;
+    const voucherSeq = `AJU-2026-${String(voucherIndex).padStart(5, "0")}`;
+    const reasonLabel = ADJUSTMENT_REASON_LABELS[input.reason] || input.reason || "Ajuste de inventario";
+
+    let stockMoveId = 1;
+    let adjustmentType: "INFLOW" | "OUTFLOW" | "NO_CHANGE" = "NO_CHANGE";
+
+    // 5. Si hay diferencia, registrar StockMove y StockMoveLine en Axelor
+    if (delta !== 0) {
+      let typeSelect = 1; // 1 = Entrada, 2 = Salida
+      let originStr = "";
+
+      if (delta > 0) {
+        typeSelect = 1;
+        adjustmentType = "INFLOW";
+        originStr = `Ajuste (+) [${voucherSeq}] - ${reasonLabel}`;
+      } else {
+        typeSelect = 2;
+        adjustmentType = "OUTFLOW";
+        originStr = `Ajuste (-) [${voucherSeq}] - ${reasonLabel}`;
+      }
+
+      const moveLines = [
+        {
+          product: { id: input.productId },
+          productName: prodName,
+          qty: absDelta,
+          unitPrice: costPrice,
+          fromStockLocation: { id: input.warehouseId },
+          toStockLocation: { id: input.warehouseId },
+        },
+      ];
+
+      const payload = {
+        typeSelect,
+        statusSelect: 2, // Realized / Validé
+        company: { id: input.companyId },
         fromStockLocation: { id: input.warehouseId },
         toStockLocation: { id: input.warehouseId },
-      },
-    ];
+        estimatedDate: today,
+        realDate: today,
+        origin: originStr,
+        stockMoveLineList: moveLines,
+        notes: input.notes ? `${reasonLabel}: ${input.notes}` : reasonLabel,
+      };
 
-    const payload = {
-      typeSelect: 1, // Inflow / adjustment
-      statusSelect: 2, // Realized
-      company: { id: input.companyId },
-      fromStockLocation: { id: input.warehouseId },
-      toStockLocation: { id: input.warehouseId },
-      estimatedDate: today,
-      realDate: today,
-      stockMoveLineList: moveLines,
-      notes: input.notes || "Ajuste manual de inventario físico",
-    };
+      try {
+        const res = await axelor.create("com.axelor.apps.stock.db.StockMove", payload);
+        const created = Array.isArray(res.data) ? res.data[0] : res.data;
+        if (created?.id) stockMoveId = created.id;
+      } catch (err: any) {
+        console.warn("[StockService] Error creando StockMove en Axelor:", err.message);
+      }
+    }
 
-    const res = await axelor.create("com.axelor.apps.stock.db.StockMove", payload);
-    const item = Array.isArray(res.data) ? res.data[0] : res.data;
-    return {
-      success: true,
-      stockMoveId: item?.id || 1,
+    const totalImpactValue = Number((absDelta * costPrice).toFixed(2));
+
+    const record: StockAdjustmentRecord = {
+      id: `ADJ-${Date.now()}`,
+      voucherSeq,
+      date: today,
+      companyId: input.companyId,
+      warehouseId: input.warehouseId,
+      warehouseName,
+      warehouseCode,
       productId: input.productId,
-      physicalQty: input.physicalQty,
-      timestamp: new Date().toISOString(),
+      productName: prodName,
+      productCode: prodCode,
+      categoryName,
+      uomCode,
+      previousStock,
+      physicalQty,
+      deltaQty: delta,
+      adjustmentType,
+      unitCost: costPrice,
+      totalImpactValue,
+      reason: input.reason,
+      reasonLabel,
+      notes: input.notes,
+      stockMoveId,
+      responsibleName: input.responsibleName || "Responsable de Almacén",
+      status: "APPLIED",
     };
+
+    ADJUSTMENTS_STORE.unshift(record);
+    return record;
+  }
+
+  public async listAdjustments(params: {
+    companyId: number;
+    warehouseId?: number;
+    productId?: number;
+  }): Promise<StockAdjustmentRecord[]> {
+    let list = ADJUSTMENTS_STORE.filter((a) => a.companyId === params.companyId);
+    if (params.warehouseId && params.warehouseId > 0) {
+      list = list.filter((a) => a.warehouseId === params.warehouseId);
+    }
+    if (params.productId && params.productId > 0) {
+      list = list.filter((a) => a.productId === params.productId);
+    }
+    return list;
+  }
+
+  public async getAdjustmentVoucher(idOrSeq: string): Promise<StockAdjustmentRecord | null> {
+    const match = ADJUSTMENTS_STORE.find((a) => a.id === idOrSeq || a.voucherSeq === idOrSeq);
+    return match || null;
   }
 
   // ==========================================

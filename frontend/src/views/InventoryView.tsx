@@ -37,6 +37,7 @@ import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { TransferVoucherModal, TransferVoucherData } from "../components/layout/TransferVoucherModal";
+import { AdjustmentVoucherModal, AdjustmentVoucherData } from "../components/layout/AdjustmentVoucherModal";
 
 interface TransferLineItem {
   productId: number;
@@ -563,12 +564,16 @@ export const InventoryView: React.FC<{ initialTab?: "ITEMS" | "WAREHOUSES" | "TR
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Quick Stock Adjustment Modal State
+  // Quick Stock Adjustment Modal State & Voucher
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
   const [adjustItem, setAdjustItem] = useState<any>(null);
   const [adjustQty, setAdjustQty] = useState<number>(0);
-  const [adjustReason, setAdjustReason] = useState("Conteo físico periódico");
+  const [adjustReason, setAdjustReason] = useState<string>("PHYSICAL_COUNT_SURPLUS");
+  const [adjustNotes, setAdjustNotes] = useState<string>("");
+  const [adjustResponsible, setAdjustResponsible] = useState<string>("Responsable de Almacén");
   const [adjustLoading, setAdjustLoading] = useState(false);
+  const [adjustmentVoucherModalOpen, setAdjustmentVoucherModalOpen] = useState(false);
+  const [adjustmentVoucherData, setAdjustmentVoucherData] = useState<AdjustmentVoucherData | null>(null);
 
   // Transfer Voucher Modal State & History
   const [voucherModalOpen, setVoucherModalOpen] = useState(false);
@@ -873,7 +878,9 @@ export const InventoryView: React.FC<{ initialTab?: "ITEMS" | "WAREHOUSES" | "TR
   const handleOpenAdjustModal = (item: any) => {
     setAdjustItem(item);
     setAdjustQty(item.currentStock || 0);
-    setAdjustReason("Conteo físico de inventario");
+    setAdjustReason(item.currentStock > 0 ? "PHYSICAL_COUNT_SURPLUS" : "INITIAL_INVENTORY");
+    setAdjustNotes("");
+    setAdjustResponsible("Responsable de Almacén");
     setAdjustModalOpen(true);
   };
 
@@ -884,21 +891,29 @@ export const InventoryView: React.FC<{ initialTab?: "ITEMS" | "WAREHOUSES" | "TR
 
     try {
       setAdjustLoading(true);
-      await stockApi.createAdjustment({
+      const res = await stockApi.createAdjustment({
         companyId: activeCompany.id,
         warehouseId: adjustItem.locationId || locations[0]?.id || 1,
         locationId: adjustItem.locationId || locations[0]?.id || 1,
         productId: adjustItem.productId,
         productName: adjustItem.productName,
         physicalQty: adjustQty,
-        adjustedQty: adjustQty,
-        type: "PHYSICAL_COUNT",
         reason: adjustReason,
-        notes: adjustReason,
+        notes: adjustNotes,
       });
-      alert(`¡Existencia ajustada exitosamente a ${adjustQty} unidades!`);
+
+      const record: AdjustmentVoucherData = res?.data || res;
       setAdjustModalOpen(false);
-      loadStock();
+      setAdjustmentVoucherData({
+        ...record,
+        companyName: activeCompany.name || "Distribuidora Nacional PyME S.A.",
+        companyTaxId: activeCompany.taxId || "DNP190820KX1",
+      });
+      setAdjustmentVoucherModalOpen(true);
+      await loadStock();
+      if (selectedKardexProductId === adjustItem.productId) {
+        loadProductKardex(adjustItem.productId);
+      }
     } catch (err: any) {
       alert(`Error al ajustar stock: ${err.message}`);
     } finally {
@@ -2307,84 +2322,143 @@ export const InventoryView: React.FC<{ initialTab?: "ITEMS" | "WAREHOUSES" | "TR
       <Modal
         isOpen={adjustModalOpen}
         onClose={() => setAdjustModalOpen(false)}
-        title="Ajuste de Existencia Física de Inventario"
+        title="Ajuste de Existencia Física & Auditoría de Inventario"
         maxWidth="md"
       >
-        {adjustItem && (
-          <form onSubmit={handleAdjustSubmit} className="space-y-4 text-xs">
-            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/10 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Producto:</span>
-                <strong className="text-slate-900 dark:text-white font-bold">{adjustItem.productName}</strong>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Código / SKU:</span>
-                <span className="font-mono text-etiserv-blue font-bold">{adjustItem.code || adjustItem.productCode}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Bodega / Ubicación:</span>
-                <span className="text-slate-700 dark:text-slate-300 font-semibold">{adjustItem.locationName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Existencia Actual:</span>
-                <span className="font-mono font-bold text-slate-900 dark:text-white">{adjustItem.currentStock} {adjustItem.uomCode || "PZA"}</span>
-              </div>
-            </div>
+        {adjustItem && (() => {
+          const prevStock = Number(adjustItem.currentStock || 0);
+          const newQty = Number(adjustQty || 0);
+          const delta = newQty - prevStock;
+          const cost = Number(adjustItem.costPrice || 0);
+          const impactValue = Math.abs(delta) * cost;
+          const isPositive = delta > 0;
+          const isNegative = delta < 0;
 
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
-                Nueva Cantidad Física en Existencia:
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={adjustQty}
-                onChange={(e) => setAdjustQty(parseInt(e.target.value, 10) || 0)}
-                className="w-full px-3 py-2 text-sm font-mono font-bold rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#071C33] text-slate-900 dark:text-white focus:ring-1 focus:ring-etiserv-blue"
-                required
-              />
-            </div>
+          return (
+            <form onSubmit={handleAdjustSubmit} className="space-y-4 text-xs">
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/10 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Producto:</span>
+                  <strong className="text-slate-900 dark:text-white font-bold">{adjustItem.productName}</strong>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Código SKU:</span>
+                  <span className="font-mono text-etiserv-blue font-bold">{adjustItem.code || adjustItem.productCode}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Bodega / Almacén:</span>
+                  <span className="text-slate-700 dark:text-slate-300 font-semibold">{adjustItem.locationName}</span>
+                </div>
+                <div className="flex justify-between items-center pt-1 border-t border-slate-200/60 dark:border-white/5">
+                  <span className="text-slate-500">Existencia Teórica Actual:</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
+                    {prevStock} {adjustItem.uomCode || "PZA"}
+                  </span>
+                </div>
+              </div>
 
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
-                Motivo del Ajuste:
-              </label>
-              <select
-                value={adjustReason}
-                onChange={(e) => setAdjustReason(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#071C33] text-slate-900 dark:text-white focus:ring-1 focus:ring-etiserv-blue"
-              >
-                <option value="Conteo físico de inventario">Conteo físico de inventario</option>
-                <option value="Merma o producto dañado">Merma o producto dañado</option>
-                <option value="Corrección por error de captura">Corrección por error de captura</option>
-                <option value="Ingreso extraordinario">Ingreso extraordinario</option>
-              </select>
-            </div>
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                  Nueva Cantidad Física en Existencia (Conteo Real):
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={adjustQty}
+                  onChange={(e) => setAdjustQty(parseInt(e.target.value, 10) || 0)}
+                  className="w-full px-3 py-2 text-base font-mono font-bold rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#071C33] text-slate-900 dark:text-white focus:ring-1 focus:ring-etiserv-blue"
+                  required
+                />
+              </div>
 
-            <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-white/10">
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={() => setAdjustModalOpen(false)}
-              >
-                Cancelar
-              </Button>
-              <Button
-                variant="primary"
-                glow
-                size="sm"
-                type="submit"
-                loading={adjustLoading}
-                className="gap-1.5 font-semibold"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Confirmar Ajuste</span>
-              </Button>
-            </div>
-          </form>
-        )}
+              {/* Live Delta & Valuation Impact Preview Box */}
+              <div className="p-3 rounded-xl bg-gradient-to-r from-slate-50 to-blue-50/50 dark:from-white/[0.02] dark:to-blue-950/20 border border-slate-200 dark:border-white/10 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-medium">Diferencia Neta (Δ):</span>
+                  <Badge
+                    variant={isPositive ? "success" : isNegative ? "danger" : "neutral"}
+                    className="gap-1 font-mono font-bold text-xs"
+                  >
+                    {isPositive ? `+${delta} (Entrada / Sobrante)` : isNegative ? `${delta} (Salida / Merma)` : "0 (Sin cambio)"}
+                  </Badge>
+                </div>
+                <div className="flex justify-between items-center pt-1 border-t border-slate-200/50 dark:border-white/5 font-mono">
+                  <span className="text-slate-500">Impacto Monetario Estimado:</span>
+                  <strong className={`text-xs font-bold ${isPositive ? "text-emerald-600 dark:text-emerald-400" : isNegative ? "text-rose-600 dark:text-rose-400" : "text-slate-500"}`}>
+                    {isPositive ? "+" : isNegative ? "-" : ""}${impactValue.toFixed(2)} MXN
+                  </strong>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                  Motivo del Ajuste:
+                </label>
+                <select
+                  value={adjustReason}
+                  onChange={(e) => setAdjustReason(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#071C33] text-slate-900 dark:text-white focus:ring-1 focus:ring-etiserv-blue"
+                >
+                  <option value="INITIAL_INVENTORY">Inventario Inicial de Apertura (+)</option>
+                  <option value="PHYSICAL_COUNT_SURPLUS">Sobrante en Conteo Físico (+)</option>
+                  <option value="PHYSICAL_COUNT_SHORTAGE">Faltante en Conteo Físico (-)</option>
+                  <option value="DAMAGED_WASTE">Merma / Producto Dañado o Roto (-)</option>
+                  <option value="EXPIRED">Caducidad / Producto Vencido (-)</option>
+                  <option value="INTERNAL_CONSUMPTION">Consumo / Uso Interno de la Empresa (-)</option>
+                  <option value="THEFT_LOSS">Pérdida por Robo o Extravío (-)</option>
+                  <option value="ENTRY_ERROR">Corrección por Error de Captura Previa</option>
+                  <option value="OTHER">Otro Ajuste Extraordinario</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                  Observaciones / Justificación de Auditoría:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: Auditoría física de pasillo 3 / Daño de empaque..."
+                  value={adjustNotes}
+                  onChange={(e) => setAdjustNotes(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#071C33] text-slate-900 dark:text-white focus:ring-1 focus:ring-etiserv-blue"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-white/10">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  onClick={() => setAdjustModalOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="primary"
+                  glow
+                  size="sm"
+                  type="submit"
+                  loading={adjustLoading}
+                  className="gap-1.5 font-bold shadow-sm"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Confirmar Ajuste & Emitir Vale</span>
+                </Button>
+              </div>
+            </form>
+          );
+        })()}
       </Modal>
+
+      {/* OFFICIAL PRINTABLE ADJUSTMENT VOUCHER MODAL */}
+      <AdjustmentVoucherModal
+        isOpen={adjustmentVoucherModalOpen}
+        onClose={() => {
+          setAdjustmentVoucherModalOpen(false);
+          setAdjustmentVoucherData(null);
+        }}
+        voucher={adjustmentVoucherData}
+      />
 
       {/* MULTI-PRODUCT INTERNAL TRANSFER MODAL */}
       <Modal

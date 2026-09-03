@@ -101,6 +101,34 @@ stockRouter.get("/kardex", async (req: Request, res: Response): Promise<void> =>
   }
 });
 
+// GET /api/stock/adjustments
+stockRouter.get("/adjustments", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : 13;
+    const warehouseId = req.query.warehouseId ? parseInt(req.query.warehouseId as string, 10) : undefined;
+    const productId = req.query.productId ? parseInt(req.query.productId as string, 10) : undefined;
+
+    const result = await stockService.listAdjustments({ companyId, warehouseId, productId });
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/stock/adjustments/:id
+stockRouter.get("/adjustments/:id", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await stockService.getAdjustmentVoucher(req.params.id);
+    if (!result) {
+      res.status(404).json({ success: false, error: "Vale de ajuste no encontrado" });
+      return;
+    }
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // GET /api/stock/kardex/product/:id
 stockRouter.get("/kardex/product/:id", async (req: Request, res: Response): Promise<void> => {
   try {

@@ -63,4 +63,15 @@ export const stockApi = {
     const res = await api.get(url);
     return res.data.data;
   },
+  listAdjustments: async (companyId: number, warehouseId?: number, productId?: number) => {
+    let url = `/stock/adjustments?companyId=${companyId}`;
+    if (warehouseId) url += `&warehouseId=${warehouseId}`;
+    if (productId) url += `&productId=${productId}`;
+    const res = await api.get(url);
+    return res.data.data;
+  },
+  getAdjustmentVoucher: async (idOrSeq: string) => {
+    const res = await api.get(`/stock/adjustments/${idOrSeq}`);
+    return res.data.data;
+  },
 };

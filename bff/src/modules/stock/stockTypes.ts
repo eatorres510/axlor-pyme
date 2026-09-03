@@ -54,6 +54,44 @@ export const StockTransferSchema = z
 export type StockTransferInput = z.infer<typeof StockTransferSchema>;
 
 // --- Ajustes de Inventario ---
+export type StockAdjustmentReason =
+  | "INITIAL_INVENTORY"
+  | "PHYSICAL_COUNT_SURPLUS"
+  | "PHYSICAL_COUNT_SHORTAGE"
+  | "DAMAGED_WASTE"
+  | "EXPIRED"
+  | "INTERNAL_CONSUMPTION"
+  | "THEFT_LOSS"
+  | "ENTRY_ERROR"
+  | "OTHER";
+
+export interface StockAdjustmentRecord {
+  id: string;
+  voucherSeq: string;
+  date: string;
+  companyId: number;
+  warehouseId: number;
+  warehouseName: string;
+  warehouseCode?: string;
+  productId: number;
+  productName: string;
+  productCode: string;
+  categoryName?: string;
+  uomCode?: string;
+  previousStock: number;
+  physicalQty: number;
+  deltaQty: number;
+  adjustmentType: "INFLOW" | "OUTFLOW" | "NO_CHANGE";
+  unitCost: number;
+  totalImpactValue: number;
+  reason: StockAdjustmentReason | string;
+  reasonLabel: string;
+  notes?: string;
+  stockMoveId: number;
+  responsibleName?: string;
+  status: "APPLIED";
+}
+
 export const StockAdjustmentSchema = z
   .object({
     companyId: z.coerce.number().min(1, "El ID de empresa es requerido"),
@@ -61,11 +99,12 @@ export const StockAdjustmentSchema = z
     locationId: z.coerce.number().optional(),
     productId: z.coerce.number().min(1, "El ID del producto es requerido"),
     productName: z.string().optional(),
+    productCode: z.string().optional(),
     physicalQty: z.coerce.number().optional(),
     adjustedQty: z.coerce.number().optional(),
-    type: z.string().optional(),
-    reason: z.string().optional(),
+    reason: z.string().optional().default("PHYSICAL_COUNT_SURPLUS"),
     notes: z.string().optional(),
+    responsibleName: z.string().optional(),
   })
   .transform((data) => {
     const warehouseId = data.warehouseId || data.locationId || 0;
@@ -75,15 +114,18 @@ export const StockAdjustmentSchema = z
         : data.adjustedQty !== undefined
         ? data.adjustedQty
         : 0;
-    const notes = data.notes || data.reason || "Ajuste físico de inventario";
+    const notes = data.notes || "";
 
     return {
       companyId: data.companyId,
       warehouseId,
       productId: data.productId,
       productName: data.productName || "Producto",
+      productCode: data.productCode,
       physicalQty,
+      reason: data.reason || "PHYSICAL_COUNT_SURPLUS",
       notes,
+      responsibleName: data.responsibleName || "Responsable de Almacén",
     };
   })
   .refine((data) => data.warehouseId > 0, { message: "El almacén es requerido" });
