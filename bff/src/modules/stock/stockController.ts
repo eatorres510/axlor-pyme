@@ -100,3 +100,22 @@ stockRouter.get("/kardex", async (req: Request, res: Response): Promise<void> =>
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// GET /api/stock/kardex/product/:id
+stockRouter.get("/kardex/product/:id", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string, 10) : 13;
+    const productId = parseInt(req.params.id, 10);
+    const warehouseId = req.query.warehouseId ? parseInt(req.query.warehouseId as string, 10) : undefined;
+
+    if (isNaN(productId) || productId <= 0) {
+      res.status(400).json({ success: false, error: "ID de producto inválido" });
+      return;
+    }
+
+    const result = await stockService.getProductKardex({ companyId, productId, warehouseId });
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});

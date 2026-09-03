@@ -57,4 +57,10 @@ export const stockApi = {
     const res = await api.get(url);
     return res.data.data;
   },
+  getProductKardex: async (companyId: number, productId: number, warehouseId?: number) => {
+    let url = `/stock/kardex/product/${productId}?companyId=${companyId}`;
+    if (warehouseId) url += `&warehouseId=${warehouseId}`;
+    const res = await api.get(url);
+    return res.data.data;
+  },
 };
